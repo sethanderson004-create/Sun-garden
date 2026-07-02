@@ -40,6 +40,12 @@ const state = {
   brush: 'solid',
   timelineMonth: new Date().getMonth() + 1,
   photo: null, // HTMLImageElement or null
+  // where the loaded panorama sits in the sky: azimuth of its left edge,
+  // azimuth span, and the elevations of its top and bottom edges
+  photoAzStart: 0,
+  photoSpan: 360,
+  photoTopEl: 90,
+  photoBotEl: 0,
 };
 
 const activeSpot = () => state.spots[state.active];
@@ -211,8 +217,14 @@ function draw() {
   ctx.fillRect(0, 0, W, H);
 
   if (state.photo) {
+    const pw = (Math.max(30, state.photoSpan) / 360) * W;
+    const x0 = xOfAz(((state.photoAzStart % 360) + 360) % 360);
+    const yTop = yOfEl(state.photoTopEl);
+    const ph = Math.max(10, yOfEl(state.photoBotEl) - yTop);
     ctx.globalAlpha = 0.9;
-    ctx.drawImage(state.photo, 0, 0, W, H);
+    // draw twice, one canvas-width apart, so a photo spanning north wraps
+    ctx.drawImage(state.photo, x0, yTop, pw, ph);
+    ctx.drawImage(state.photo, x0 - W, yTop, pw, ph);
     ctx.globalAlpha = 1;
   }
 
@@ -612,9 +624,45 @@ $('photo').addEventListener('change', (ev) => {
   const file = ev.target.files[0];
   if (!file) return;
   const img = new Image();
-  img.onload = () => { state.photo = img; draw(); };
+  img.onload = () => {
+    state.photo = img;
+    // heuristic default: panoramas are wide; guess ~60° of azimuth per unit
+    // of aspect ratio (a level pano has ~50° vertical field of view)
+    if (img.width > 2 * img.height) {
+      state.photoSpan = Math.min(360, Math.round((img.width / img.height) * 50 / 5) * 5);
+      state.photoTopEl = 25;
+      state.photoBotEl = -25;
+      $('photoSpan').value = state.photoSpan;
+      $('photoTopEl').value = state.photoTopEl;
+      $('photoBotEl').value = state.photoBotEl;
+    }
+    $('photoAlign').style.display = '';
+    draw();
+  };
   img.src = URL.createObjectURL(file);
 });
+
+$('photoClear').addEventListener('click', () => {
+  state.photo = null;
+  $('photo').value = '';
+  $('photoAlign').style.display = 'none';
+  draw();
+});
+
+for (const [id, key] of [
+  ['photoAzStart', 'photoAzStart'],
+  ['photoSpan', 'photoSpan'],
+  ['photoTopEl', 'photoTopEl'],
+  ['photoBotEl', 'photoBotEl'],
+]) {
+  $(id).addEventListener('input', () => {
+    const v = Number($(id).value);
+    if (Number.isFinite(v)) {
+      state[key] = v;
+      draw();
+    }
+  });
+}
 
 $('reset').addEventListener('click', () => {
   activeSpot().solid.fill(0);

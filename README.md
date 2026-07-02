@@ -29,6 +29,11 @@ Features:
   early-spring estimates stay honest.
 - **Daily sun timeline** — for any month, see exactly *when* a spot is lit vs
   shaded ("sun until 07:20, tree shade until 09:10, sun again to 15:00…").
+- **Panorama photo alignment** — load a photo taken with the phone camera's
+  Pano mode as a tracing guide, then position it on the sky: which compass
+  direction the left edge faces, how many degrees the sweep covered
+  (guessed from the aspect ratio), and the elevation of the top/bottom
+  edges. In-app instructions cover how to shoot it.
 - **Measured obstacles** — for obstructions too close to trace comfortably
   (a hedge 2–3 ft from a fence), enter direction, distance, height, and the
   *plant's* height instead; the app computes the exact blocked profile
