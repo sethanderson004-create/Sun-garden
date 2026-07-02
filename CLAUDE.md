@@ -42,6 +42,14 @@ The codebase is split into a pure computational engine (tested) and a UI layer
   a tape measure beats tracing.
 - **`src/app.js` + `index.html`** — all state, canvas rendering, and DOM.
   Imports the engine; the engine never imports from here.
+- **`src/ar.js` + `ar.html`** — the AR sun view (beta): camera passthrough +
+  device-orientation compass/gyro, sun arcs projected via a pinhole model,
+  one-tap "align to sun" compass correction, and a sweep spot-check that
+  classifies sky pixels along the arcs into per-season sun hours. Sensors,
+  camera, and pixel work stay here; it imports only engine modules. Reads
+  lat/lon from the same `"sun-garden"` localStorage key as app.js. Has a
+  drag-to-look fallback when no orientation sensor exists (desktop), and a
+  `window.__arDebug` hook used by Playwright checks.
 
 Keep computation in the engine modules where `node --test` can reach it; the
 engine must stay browser/node agnostic (no DOM, no Date.now() side effects in

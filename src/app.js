@@ -12,15 +12,15 @@
 // The ?v= query is cache busting for GitHub Pages (max-age=600): it keeps a
 // cached module from pairing with a newer index.html. Bump every '?v=' in the
 // repo together (grep for it) whenever index.html or anything in src/ changes.
-import { solarPosition } from './solar.js?v=2';
+import { solarPosition } from './solar.js?v=3';
 import {
   sunHoursForDay,
   sunPathForDay,
   sunIntervalsForDay,
   monthlyReport,
   categorize,
-} from './sunhours.js?v=2';
-import { fenceProfile, treeProfile, paintProfile } from './obstacles.js?v=2';
+} from './sunhours.js?v=3';
+import { fenceProfile, treeProfile, paintProfile } from './obstacles.js?v=3';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const AZ_STEPS = 360; // skyline resolution: 1° bins
