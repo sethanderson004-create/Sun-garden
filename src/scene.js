@@ -29,6 +29,15 @@ const RAD = Math.PI / 180;
 const MAX_EL = 85;
 const AZ_STEPS = 360;
 
+// Ray directions for the 360 azimuth bins, computed once: skylines are
+// rebuilt per grid cell of the garden map, so per-cell trig adds up.
+const DIR_X = new Float64Array(AZ_STEPS);
+const DIR_Y = new Float64Array(AZ_STEPS);
+for (let az = 0; az < AZ_STEPS; az++) {
+  DIR_X[az] = Math.sin(az * RAD);
+  DIR_Y[az] = Math.cos(az * RAD);
+}
+
 /** Compass azimuth (0=N, 90=E) of the direction (dx east, dy north). */
 function azimuthTo(dx, dy) {
   return (((Math.atan2(dx, dy) / RAD) % 360) + 360) % 360;
@@ -78,8 +87,8 @@ function paintWalls(arr, pts, closed, height, px, py, plantHeight) {
   if (rise <= 0 || pts.length < 2) return;
   const edges = closed ? pts.length : pts.length - 1;
   for (let az = 0; az < AZ_STEPS; az++) {
-    const dirx = Math.sin(az * RAD);
-    const diry = Math.cos(az * RAD);
+    const dirx = DIR_X[az];
+    const diry = DIR_Y[az];
     let dist = Infinity;
     for (let i = 0; i < edges; i++) {
       const d = rayHitDistance(px, py, dirx, diry, pts[i], pts[(i + 1) % pts.length]);
