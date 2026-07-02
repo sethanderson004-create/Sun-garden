@@ -15,8 +15,8 @@
  *   frame; we project world points with d = Rᵀ·v and a pinhole model.
  */
 
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=4';
-import { sunPathForDay, categorize } from './sunhours.js?v=4';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=5';
+import { sunPathForDay, categorize } from './sunhours.js?v=5';
 
 const $ = (id) => document.getElementById(id);
 const cssVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
@@ -117,69 +117,85 @@ function buildDays() {
 // instead the compass only *slowly* pulls the yaw reference, and "Align to
 // sun" pins it exactly.
 
-let att = null; // relative attitude {alpha, beta, gamma}, lightly smoothed
-let headingOffset = null; // yaw anchor: absolute alpha ≈ att.alpha + headingOffset
-let lastRelMs = -Infinity;
 let R = [1, 0, 0, 0, 1, 0, 0, 0, 1]; // row-major device→world
+let sensorSeen = false;
+let curAlpha = 0; // alpha of the attitude stream (for compass anchoring)
+let headingOffset = null; // yaw anchor: world alpha ≈ curAlpha + headingOffset
+let anchorFrozen = false; // set by "Align to sun": gyro + sun outrank the compass
+let rateDps = 0; // smoothed angular speed, gates the compass
+let lastEv = null; // previous attitude event, for the rate estimate
+let lastRelMs = -Infinity;
 
 const angleDiff = (a, b) => ((((a - b) % 360) + 540) % 360) - 180; // shortest a−b
 const angleLerp = (a, b, t) => a + angleDiff(b, a) * t;
 
-function anchorHeading(absAlpha) {
-  if (!att) return;
-  const target = absAlpha - att.alpha;
-  headingOffset = headingOffset === null
-    ? angleDiff(target, 0)
-    : angleLerp(headingOffset, target, 0.04); // ≈1.5 s time constant at 60 Hz
-}
-
-function rebuildR() {
-  const alpha = att.alpha + (headingOffset ?? 0);
-  const cA = Math.cos(alpha * D2R), sA = Math.sin(alpha * D2R);
-  const cB = Math.cos(att.beta * D2R), sB = Math.sin(att.beta * D2R);
-  const cG = Math.cos(att.gamma * D2R), sG = Math.sin(att.gamma * D2R);
+/**
+ * Build R for one event directly — never smooth alpha/beta/gamma separately:
+ * with the phone upright (beta ≈ 90°, exactly this app's pose) the Euler
+ * decomposition is near gimbal lock, alpha and gamma can jump together while
+ * describing the same attitude, and per-angle blending turns that into wild
+ * view swings. The matrix per event is unique and the gyro stream is smooth.
+ */
+function handleAttitude(ev) {
+  const alpha = ev.alpha ?? 0, beta = ev.beta, gamma = ev.gamma ?? 0;
+  const ms = performance.now();
+  if (lastEv) {
+    const dt = Math.max(0.004, (ms - lastEv.ms) / 1000);
+    const moved =
+      Math.abs(angleDiff(alpha, lastEv.alpha)) +
+      Math.abs(beta - lastEv.beta) +
+      Math.abs(angleDiff(gamma, lastEv.gamma));
+    rateDps = 0.8 * rateDps + 0.2 * (moved / dt);
+  }
+  lastEv = { ms, alpha, beta, gamma };
+  curAlpha = alpha;
+  const a = (alpha + (headingOffset ?? 0)) * D2R;
+  const cA = Math.cos(a), sA = Math.sin(a);
+  const cB = Math.cos(beta * D2R), sB = Math.sin(beta * D2R);
+  const cG = Math.cos(gamma * D2R), sG = Math.sin(gamma * D2R);
   R = [
     cA * cG - sA * sB * sG, -sA * cB, cA * sG + sA * sB * cG,
     sA * cG + cA * sB * sG, cA * cB, sA * sG - cA * sB * cG,
     -cB * sG, sB, cB * cG,
   ];
+  sensorSeen = true;
   state.manualLook = false;
 }
 
-/** Relative attitude stream (fires ~60 Hz on phones). */
+/**
+ * The compass wanders by tens of degrees while the phone moves, and its
+ * heading is weakly defined with the phone held upright — low-pass filtering
+ * alone just follows that wander. So the compass sets the initial reference,
+ * then may only steer *slowly while the device is still*, and not at all
+ * once "Align to sun" has pinned the heading.
+ */
+function anchorHeading(absAlpha) {
+  if (!sensorSeen) return;
+  const target = absAlpha - curAlpha;
+  if (headingOffset === null) {
+    headingOffset = angleDiff(target, 0);
+    return;
+  }
+  if (anchorFrozen || rateDps > 15) return;
+  headingOffset = angleLerp(headingOffset, target, 0.01);
+}
+
+/** Relative attitude stream (gyro-fused, fires ~60 Hz on phones). */
 function onRelOrientation(ev) {
   if (ev.beta === null || ev.beta === undefined) return;
   lastRelMs = performance.now();
-  const next = { alpha: ev.alpha ?? 0, beta: ev.beta, gamma: ev.gamma ?? 0 };
-  att = att
-    ? {
-        alpha: angleLerp(att.alpha, next.alpha, 0.6),
-        beta: angleLerp(att.beta, next.beta, 0.6),
-        gamma: angleLerp(att.gamma, next.gamma, 0.6),
-      }
-    : next;
+  handleAttitude(ev);
   // iOS: the (magnetic-north) compass rides along on the relative event
   if (ev.webkitCompassHeading !== undefined) anchorHeading(360 - ev.webkitCompassHeading);
-  rebuildR();
 }
 
 /** Absolute orientation (Android): compass anchor — and attitude fallback. */
 function onAbsOrientation(ev) {
   if (ev.beta === null || ev.beta === undefined) return;
-  if (performance.now() - lastRelMs > 1000) {
-    // no relative stream on this device: absolute is also the attitude,
-    // which makes anchorHeading's target settle to ~0
-    const next = { alpha: ev.alpha ?? 0, beta: ev.beta, gamma: ev.gamma ?? 0 };
-    att = att
-      ? {
-          alpha: angleLerp(att.alpha, next.alpha, 0.6),
-          beta: angleLerp(att.beta, next.beta, 0.6),
-          gamma: angleLerp(att.gamma, next.gamma, 0.6),
-        }
-      : next;
-  }
+  // when this is also the attitude source, curAlpha is absolute and the
+  // anchor target settles to ~0
+  if (performance.now() - lastRelMs > 1000) handleAttitude(ev);
   anchorHeading(ev.alpha ?? 0);
-  rebuildR();
 }
 
 // ---------------------------------------------------------------- projection
@@ -513,7 +529,8 @@ $('alignBtn').addEventListener('click', () => {
   // the offset that makes the sun's true azimuth land on the crosshair.
   const { az } = centerDirection(); // compass-model azimuth of the crosshair
   state.azOffset = ((az - sun.azimuth + 540) % 360) - 180;
-  toast('Aligned to the sun ✓ — compass corrected.');
+  anchorFrozen = true; // from here on: gyro + this sun fix; the compass is done
+  toast('Aligned to the sun ✓ — heading locked. If arcs drift after a while, tap again.');
 });
 
 $('sweepBtn').addEventListener('click', () => {
@@ -648,9 +665,11 @@ $('startBtn').addEventListener('click', async () => {
 
   // no orientation events? fall back to dragging
   setTimeout(() => {
-    if (!att) {
+    if (!sensorSeen) {
       state.manualLook = true;
       toast('No compass detected — drag to look around.');
+    } else {
+      toast('Rough compass set. For a solid lock: point the crosshair at the sun and tap ☀ Align.', 4200);
     }
   }, 1500);
 });
