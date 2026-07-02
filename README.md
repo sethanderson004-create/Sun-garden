@@ -33,7 +33,9 @@ Features:
   Pano mode as a tracing guide, then position it on the sky: which compass
   direction the left edge faces, how many degrees the sweep covered
   (guessed from the aspect ratio), and the elevation of the top/bottom
-  edges. In-app instructions cover how to shoot it.
+  edges. The canvas zooms to the photo so tracing happens at full size
+  ("Show full sky" toggles back), and Undo takes back any stroke.
+  In-app instructions cover how to shoot it.
 - **Measured obstacles** — for obstructions too close to trace comfortably
   (a hedge 2–3 ft from a fence), enter direction, distance, height, and the
   *plant's* height instead; the app computes the exact blocked profile

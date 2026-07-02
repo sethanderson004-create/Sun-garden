@@ -46,6 +46,7 @@ const state = {
   photoSpan: 360,
   photoTopEl: 90,
   photoBotEl: 0,
+  viewMode: 'full', // 'full' sky, or 'photo' = zoomed to the loaded panorama
 };
 
 const activeSpot = () => state.spots[state.active];
@@ -117,10 +118,39 @@ const canvas = $('pano');
 const ctx = canvas.getContext('2d');
 const W = canvas.width;
 const H = canvas.height;
-const xOfAz = (az) => (az / 360) * W;
-const yOfEl = (el) => H - (el / MAX_EL) * H;
-const azOfX = (x) => (x / W) * 360;
-const elOfY = (y) => ((H - y) / H) * MAX_EL;
+
+// The canvas shows a window of the sky. Full sky is 360° × 0–90°, but when a
+// panorama photo is loaded the view zooms to the photo so it fills the canvas
+// and tracing happens at full size instead of in a small low corner.
+const view = { azStart: 0, azSpan: 360, elMin: 0, elMax: MAX_EL };
+
+const unwrapAz = (az) => (((az - view.azStart) % 360) + 360) % 360;
+const xOfAz = (az) => (unwrapAz(az) / view.azSpan) * W;
+const yOfEl = (el) => ((view.elMax - el) / (view.elMax - view.elMin)) * H;
+const azOfX = (x) => (((view.azStart + (x / W) * view.azSpan) % 360) + 360) % 360;
+const elOfY = (y) => view.elMax - (y / H) * (view.elMax - view.elMin);
+
+function setFullView() {
+  view.azStart = 0;
+  view.azSpan = 360;
+  view.elMin = 0;
+  view.elMax = MAX_EL;
+}
+
+function setPhotoView() {
+  const pad = Math.min(8, (360 - state.photoSpan) / 2);
+  view.azStart = (((state.photoAzStart - pad) % 360) + 360) % 360;
+  view.azSpan = Math.min(360, state.photoSpan + 2 * pad);
+  view.elMin = Math.min(0, state.photoBotEl) - 2;
+  view.elMax = Math.min(90, Math.max(state.photoTopEl + 6, view.elMin + 25));
+}
+
+function applyViewMode() {
+  if (state.viewMode === 'photo' && state.photo) setPhotoView();
+  else setFullView();
+  $('viewToggle').textContent =
+    state.viewMode === 'photo' ? 'Show full sky' : 'Zoom to photo';
+}
 
 function today() {
   const d = new Date();
@@ -149,13 +179,13 @@ function drawSunPath(points, color, dashed, label, month) {
     ctx.globalAlpha = blocked ? 0.25 : 1;
     ctx.beginPath();
     let pen = false;
-    let prevAz = null;
+    let prevX = null;
     for (const p of points) {
       const isBlocked = p.elevation <= Math.max(0, skyline(p.azimuth, month));
-      const wrap = prevAz !== null && Math.abs(p.azimuth - prevAz) > 180;
-      prevAz = p.azimuth;
-      if (isBlocked !== blocked || p.elevation < 0 || wrap) { pen = false; continue; }
       const x = xOfAz(p.azimuth);
+      const seam = prevX !== null && Math.abs(x - prevX) > W / 2; // crossed the view edge
+      prevX = x;
+      if (isBlocked !== blocked || p.elevation < 0 || seam) { pen = false; continue; }
       const y = yOfEl(p.elevation);
       if (pen) ctx.lineTo(x, y);
       else { ctx.moveTo(x, y); pen = true; }
@@ -168,11 +198,16 @@ function drawSunPath(points, color, dashed, label, month) {
   // Label at the path's peak; if another path's label already sits there
   // (June and early-July "Today" peak in the same place), slide along the
   // path toward morning, then evening, until the label has room.
-  const peak = points.reduce((a, b) => (b.elevation > a.elevation ? b : a));
-  if (peak.elevation <= 0) return;
+  const inView = (p) =>
+    p.elevation > Math.max(3, view.elMin + 3) &&
+    p.elevation < view.elMax &&
+    unwrapAz(p.azimuth) < view.azSpan;
+  const visible = points.filter(inView);
+  if (visible.length === 0) return;
+  const peak = visible.reduce((a, b) => (b.elevation > a.elevation ? b : a));
   const peakIdx = points.indexOf(peak);
   const candidates = [peakIdx, Math.floor(peakIdx * 0.55), Math.floor(peakIdx * 1.45)]
-    .filter((i) => i >= 0 && i < points.length && points[i].elevation > 3);
+    .filter((i) => i >= 0 && i < points.length && inView(points[i]));
   let pos = null;
   for (const i of candidates) {
     const x = Math.max(56, Math.min(W - 56, xOfAz(points[i].azimuth)));
@@ -196,8 +231,9 @@ function drawSunPath(points, color, dashed, label, month) {
 function fillLayer(arr, fill, edge, dashedEdge) {
   ctx.beginPath();
   ctx.moveTo(0, H);
-  for (let a = 0; a <= AZ_STEPS; a++) {
-    ctx.lineTo(xOfAz(a), yOfEl(arr[a % AZ_STEPS]));
+  for (let i = 0; i <= Math.ceil(view.azSpan); i++) {
+    const bin = ((Math.round(view.azStart) + i) % AZ_STEPS + AZ_STEPS) % AZ_STEPS;
+    ctx.lineTo((i / view.azSpan) * W, yOfEl(arr[bin]));
   }
   ctx.lineTo(W, H);
   ctx.closePath();
@@ -217,25 +253,35 @@ function draw() {
   ctx.fillRect(0, 0, W, H);
 
   if (state.photo) {
-    const pw = (Math.max(30, state.photoSpan) / 360) * W;
-    const x0 = xOfAz(((state.photoAzStart % 360) + 360) % 360);
+    const pw = (Math.max(30, state.photoSpan) / view.azSpan) * W;
+    const x0 = xOfAz(state.photoAzStart);
     const yTop = yOfEl(state.photoTopEl);
     const ph = Math.max(10, yOfEl(state.photoBotEl) - yTop);
+    const fullTurn = (360 / view.azSpan) * W;
     ctx.globalAlpha = 0.9;
-    // draw twice, one canvas-width apart, so a photo spanning north wraps
+    // draw twice, one full turn apart, so a photo spanning north wraps
     ctx.drawImage(state.photo, x0, yTop, pw, ph);
-    ctx.drawImage(state.photo, x0 - W, yTop, pw, ph);
+    ctx.drawImage(state.photo, x0 - fullTurn, yTop, pw, ph);
     ctx.globalAlpha = 1;
   }
 
-  // grid: elevation every 15°, azimuth every 45°
+  // grid, denser when zoomed in
+  const elStep = view.elMax - view.elMin <= 50 ? 10 : 15;
+  const azStep = view.azSpan <= 150 ? 15 : 45;
   ctx.strokeStyle = cssVar('--gridline');
   ctx.lineWidth = 1;
-  for (let el = 15; el < MAX_EL; el += 15) {
+  for (let el = Math.ceil(view.elMin / elStep) * elStep; el < view.elMax; el += elStep) {
     ctx.beginPath(); ctx.moveTo(0, yOfEl(el)); ctx.lineTo(W, yOfEl(el)); ctx.stroke();
   }
-  for (let az = 45; az < 360; az += 45) {
-    ctx.beginPath(); ctx.moveTo(xOfAz(az), 0); ctx.lineTo(xOfAz(az), H); ctx.stroke();
+  for (let az = 0; az < 360; az += azStep) {
+    const x = xOfAz(az);
+    if (x <= 0 || x >= W) continue;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  // horizon line when the view extends below 0°
+  if (view.elMin < 0) {
+    ctx.strokeStyle = cssVar('--baseline');
+    ctx.beginPath(); ctx.moveTo(0, yOfEl(0)); ctx.lineTo(W, yOfEl(0)); ctx.stroke();
   }
 
   // skyline layers: deciduous first, solid over it
@@ -252,9 +298,9 @@ function draw() {
     drawSunPath(sunPathForDay(state.lat, state.lon, y, m, d), cssVar('--path-today'), true, 'Today', m);
   }
 
-  // the sun right now, if up
+  // the sun right now, if up and inside the view
   const now = solarPosition(state.lat, state.lon, Date.now());
-  if (now.elevation > 0) {
+  if (now.elevation > 0 && now.elevation < view.elMax && unwrapAz(now.azimuth) < view.azSpan) {
     ctx.beginPath();
     ctx.arc(xOfAz(now.azimuth), yOfEl(now.elevation), 7, 0, Math.PI * 2);
     ctx.fillStyle = cssVar('--path-today');
@@ -268,14 +314,45 @@ function draw() {
   ctx.fillStyle = cssVar('--text-muted');
   ctx.font = '12px system-ui, sans-serif';
   ctx.textAlign = 'center';
-  for (const [az, name] of [[0, 'N'], [90, 'E'], [180, 'S'], [270, 'W']]) {
-    haloText(name, Math.max(8, xOfAz(az)), H - 6);
+  const dirs = [[0, 'N'], [45, 'NE'], [90, 'E'], [135, 'SE'], [180, 'S'], [225, 'SW'], [270, 'W'], [315, 'NW']];
+  for (const [az, name] of dirs) {
+    if (view.azSpan === 360 && az % 90 !== 0) continue; // full view: cardinals only
+    const x = xOfAz(az);
+    if (x > W - 4) continue;
+    haloText(name, Math.max(10, x), H - 6);
   }
   ctx.textAlign = 'left';
-  for (let el = 15; el < MAX_EL; el += 30) {
+  for (let el = Math.max(elStep, Math.ceil(view.elMin / elStep) * elStep); el < view.elMax; el += elStep * 2) {
     haloText(`${el}°`, 4, yOfEl(el) - 3);
   }
 }
+
+// -------- undo (finger tracing needs a safety net)
+
+const undoStack = [];
+
+function pushUndo() {
+  undoStack.push({
+    spot: state.active,
+    solid: activeSpot().solid.slice(),
+    leafy: activeSpot().leafy.slice(),
+  });
+  if (undoStack.length > 30) undoStack.shift();
+  $('undo').disabled = false;
+}
+
+$('undo').addEventListener('click', () => {
+  const entry = undoStack.pop();
+  $('undo').disabled = undoStack.length === 0;
+  if (!entry || entry.spot >= state.spots.length) return;
+  state.active = entry.spot;
+  state.spots[entry.spot].solid.set(entry.solid);
+  state.spots[entry.spot].leafy.set(entry.leafy);
+  renderSpotSelect();
+  persist();
+  draw();
+  scheduleRecompute();
+});
 
 // -------- skyline drawing (pointer events)
 
@@ -306,6 +383,7 @@ function pointerPos(ev) {
 }
 
 canvas.addEventListener('pointerdown', (ev) => {
+  pushUndo();
   drawing = true;
   lastAz = null;
   canvas.setPointerCapture(ev.pointerId);
@@ -580,6 +658,7 @@ $('obApply').addEventListener('click', () => {
     return;
   }
   const profile = $('obType').value === 'tree' ? treeProfile(params) : fenceProfile(params);
+  pushUndo();
   paintProfile(activeSpot()[state.brush], profile);
   persist();
   draw();
@@ -637,6 +716,8 @@ $('photo').addEventListener('change', (ev) => {
       $('photoBotEl').value = state.photoBotEl;
     }
     $('photoAlign').style.display = '';
+    state.viewMode = 'photo'; // zoom to the photo so it fills the canvas
+    applyViewMode();
     draw();
   };
   img.src = URL.createObjectURL(file);
@@ -646,6 +727,14 @@ $('photoClear').addEventListener('click', () => {
   state.photo = null;
   $('photo').value = '';
   $('photoAlign').style.display = 'none';
+  state.viewMode = 'full';
+  applyViewMode();
+  draw();
+});
+
+$('viewToggle').addEventListener('click', () => {
+  state.viewMode = state.viewMode === 'photo' ? 'full' : 'photo';
+  applyViewMode();
   draw();
 });
 
@@ -659,12 +748,14 @@ for (const [id, key] of [
     const v = Number($(id).value);
     if (Number.isFinite(v)) {
       state[key] = v;
+      applyViewMode(); // keep the zoomed view tracking the photo
       draw();
     }
   });
 }
 
 $('reset').addEventListener('click', () => {
+  pushUndo();
   activeSpot().solid.fill(0);
   activeSpot().leafy.fill(0);
   persist();
