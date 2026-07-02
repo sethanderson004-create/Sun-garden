@@ -106,3 +106,14 @@ GitHub Pages serves the repo root from `main` at
 https://sethanderson004-create.github.io/Sun-garden/ — changes are live a
 minute or two after merging to `main`. Everything must keep working as static
 files over HTTPS with no server (geolocation requires the HTTPS origin).
+
+**Cache busting is mandatory when shipping changes.** GitHub Pages serves
+everything with `max-age=600`, so for up to ~10 minutes after a deploy a
+browser can pair a fresh `index.html` with a stale cached module (this once
+shipped a "broken" pano zoom: new HTML + old cached app.js, no errors, just
+wrong behavior). Every browser-loaded module URL therefore carries a `?v=N`
+query — the `<script>` tag in `index.html` and every relative import in
+`src/`. When a change touches `index.html` or anything in `src/`, bump N
+everywhere in the same commit: `grep -rn '?v=' index.html src/` must show one
+consistent number. Node's test runner resolves queried imports fine, so the
+tests are unaffected.

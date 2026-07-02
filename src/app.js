@@ -9,15 +9,18 @@
  * leaf-on months for the hemisphere.
  */
 
-import { solarPosition } from './solar.js';
+// The ?v= query is cache busting for GitHub Pages (max-age=600): it keeps a
+// cached module from pairing with a newer index.html. Bump every '?v=' in the
+// repo together (grep for it) whenever index.html or anything in src/ changes.
+import { solarPosition } from './solar.js?v=2';
 import {
   sunHoursForDay,
   sunPathForDay,
   sunIntervalsForDay,
   monthlyReport,
   categorize,
-} from './sunhours.js';
-import { fenceProfile, treeProfile, paintProfile } from './obstacles.js';
+} from './sunhours.js?v=2';
+import { fenceProfile, treeProfile, paintProfile } from './obstacles.js?v=2';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const AZ_STEPS = 360; // skyline resolution: 1° bins
@@ -698,27 +701,46 @@ $('geo').addEventListener('click', () => {
   );
 });
 
+/**
+ * Phone panoramas run 30–60 megapixels, and draw() re-renders on every
+ * pointer move while tracing — so cache a downscaled copy instead of pushing
+ * the full-size photo through drawImage each frame (mobile Safari chokes).
+ */
+function downscaled(img) {
+  const scale = Math.min(1, 2400 / img.width, 1200 / img.height);
+  if (scale === 1) return img;
+  const c = document.createElement('canvas');
+  c.width = Math.round(img.width * scale);
+  c.height = Math.round(img.height * scale);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  return c;
+}
+
 $('photoBtn').addEventListener('click', () => $('photo').click());
 $('photo').addEventListener('change', (ev) => {
   const file = ev.target.files[0];
   if (!file) return;
   const img = new Image();
   img.onload = () => {
-    state.photo = img;
-    // heuristic default: panoramas are wide; guess ~60° of azimuth per unit
-    // of aspect ratio (a level pano has ~50° vertical field of view)
-    if (img.width > 2 * img.height) {
-      state.photoSpan = Math.min(360, Math.round((img.width / img.height) * 50 / 5) * 5);
-      state.photoTopEl = 25;
-      state.photoBotEl = -25;
-      $('photoSpan').value = state.photoSpan;
-      $('photoTopEl').value = state.photoTopEl;
-      $('photoBotEl').value = state.photoBotEl;
-    }
+    URL.revokeObjectURL(img.src);
+    state.photo = downscaled(img);
+    // heuristic default: ~50° of azimuth per unit of aspect ratio (a level
+    // pano has ~50° vertical field of view), clamped so even a single
+    // non-pano snapshot gets a plausible window the user can then correct
+    state.photoSpan = Math.max(40, Math.min(360, Math.round((img.width / img.height) * 50 / 5) * 5));
+    state.photoTopEl = 25;
+    state.photoBotEl = -25;
+    $('photoSpan').value = state.photoSpan;
+    $('photoTopEl').value = state.photoTopEl;
+    $('photoBotEl').value = state.photoBotEl;
     $('photoAlign').style.display = '';
     state.viewMode = 'photo'; // zoom to the photo so it fills the canvas
     applyViewMode();
     draw();
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(img.src);
+    alert('Could not load that image. If it came straight off the camera, try exporting/sharing it as JPEG and loading that.');
   };
   img.src = URL.createObjectURL(file);
 });
