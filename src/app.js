@@ -17,6 +17,7 @@ import {
   monthlyReport,
   categorize,
 } from './sunhours.js';
+import { fenceProfile, treeProfile, paintProfile } from './obstacles.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const AZ_STEPS = 360; // skyline resolution: 1° bins
@@ -544,6 +545,33 @@ $('delSpot').addEventListener('click', () => {
 
 document.querySelectorAll('input[name="brush"]').forEach((el) => {
   el.addEventListener('change', () => { state.brush = el.value; });
+});
+
+$('obType').addEventListener('change', (ev) => {
+  $('obWidthField').style.display = ev.target.value === 'tree' ? '' : 'none';
+});
+
+$('obApply').addEventListener('click', () => {
+  const params = {
+    azimuth: Number($('obAz').value),
+    distance: Number($('obDist').value),
+    height: Number($('obHeight').value),
+    crownWidth: Number($('obWidth').value),
+    plantHeight: Number($('obPlantH').value),
+  };
+  if (!(params.distance > 0) || !(params.height > 0)) {
+    alert('Distance and height must be positive numbers.');
+    return;
+  }
+  if (params.height <= params.plantHeight) {
+    alert('The obstacle is no taller than your plant — it casts no shadow on it.');
+    return;
+  }
+  const profile = $('obType').value === 'tree' ? treeProfile(params) : fenceProfile(params);
+  paintProfile(activeSpot()[state.brush], profile);
+  persist();
+  draw();
+  scheduleRecompute();
 });
 
 $('tlMonth').addEventListener('change', (ev) => {

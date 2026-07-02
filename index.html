@@ -179,6 +179,34 @@
       <label><input id="photo" type="file" accept="image/*" hidden /><button id="photoBtn">Load panorama photo…</button></label>
       <button id="reset">Reset skyline</button>
     </div>
+    <details class="measure" style="margin-bottom:10px">
+      <summary>Too close to trace? Enter measurements instead</summary>
+      <p class="hint" style="margin:8px 0">
+        For an obstruction right next to the plant — a hedge 2–3 ft from a fence, say — a tape measure
+        beats a panorama. Crucially, enter the <strong>height of the plant</strong>, not your eye height:
+        a 6 ft fence seen from a 2 ft hedge 2.5 ft away blocks up to 58° of sky; from standing eye height
+        it looks like a harmless 8°. Use any one unit (ft or m) for all lengths. The shape is painted onto
+        this spot's skyline with the selected brush, so a hedge-side maple can go on as a deciduous tree.
+      </p>
+      <div class="controls">
+        <div class="field"><label for="obType">Obstacle</label>
+          <select id="obType">
+            <option value="fence">Fence / wall (long, straight)</option>
+            <option value="tree">Tree / shrub</option>
+          </select></div>
+        <div class="field"><label for="obAz">Direction to it (° az)</label>
+          <input id="obAz" type="number" min="0" max="359" step="1" value="180" title="0 = N, 90 = E, 180 = S, 270 = W" /></div>
+        <div class="field"><label for="obDist">Distance</label>
+          <input id="obDist" type="number" min="0.1" step="0.1" value="2.5" /></div>
+        <div class="field"><label for="obHeight">Its height</label>
+          <input id="obHeight" type="number" min="0.1" step="0.1" value="6" /></div>
+        <div class="field" id="obWidthField" style="display:none"><label for="obWidth">Crown width</label>
+          <input id="obWidth" type="number" min="0.1" step="0.1" value="10" /></div>
+        <div class="field"><label for="obPlantH">Your plant's height</label>
+          <input id="obPlantH" type="number" min="0" step="0.1" value="2" /></div>
+        <button id="obApply" class="primary">Paint onto skyline</button>
+      </div>
+    </details>
     <canvas id="pano" width="1080" height="420" aria-label="Skyline panorama: azimuth 0–360 degrees horizontal, elevation 0–90 degrees vertical"></canvas>
     <div id="readout">&nbsp;</div>
   </div>

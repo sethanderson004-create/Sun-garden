@@ -29,6 +29,12 @@ Features:
   early-spring estimates stay honest.
 - **Daily sun timeline** — for any month, see exactly *when* a spot is lit vs
   shaded ("sun until 07:20, tree shade until 09:10, sun again to 15:00…").
+- **Measured obstacles** — for obstructions too close to trace comfortably
+  (a hedge 2–3 ft from a fence), enter direction, distance, height, and the
+  *plant's* height instead; the app computes the exact blocked profile
+  (`src/obstacles.js`). Viewing height dominates up close: a 6 ft fence seen
+  from a 2 ft hedge 2.5 ft away blocks 58° of sky, but only ~8° from
+  standing eye height.
 
 ```sh
 npm start        # serves on http://localhost:8000 (any static server works)
