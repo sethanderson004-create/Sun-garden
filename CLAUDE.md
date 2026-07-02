@@ -47,12 +47,17 @@ The codebase is split into a pure computational engine (tested) and a UI layer
   one-tap "align to sun" compass correction, and a sweep spot-check that
   classifies sky pixels along the arcs into per-season sun hours. Sensors,
   camera, and pixel work stay here; it imports only engine modules.
-  Orientation uses a complementary filter: the smooth *relative*
-  deviceorientation stream drives motion and the noisy compass only slowly
-  steers the yaw anchor (raw compass headings jump ±10° while panning — do
-  not point the view with them directly). Reads/writes the same
-  `"sun-garden"` localStorage key as app.js (lat/lon shared; saved sweeps
-  land in `arChecks`, rendered as a card by app.js). Has a drag-to-look
+  Orientation (hard-won, field-tested on iPhone — don't regress): the
+  gyro-fused *relative* deviceorientation stream drives all motion, with the
+  rotation matrix built exactly per event (never smooth alpha/beta/gamma
+  separately — the upright pose β≈90° is near gimbal lock and per-angle
+  blending causes wild swings). The compass sets the initial yaw reference,
+  then may steer only slowly *while the device is still* (rate-gated at
+  15°/s) — raw compass headings wander tens of degrees during a pan — and
+  "Align to sun" freezes it entirely (gyro + sun fix from then on).
+  Reads/writes the same `"sun-garden"` localStorage key as app.js (lat/lon
+  shared; the 💾 Save button appends sweeps to `arChecks` with a fresh GPS
+  standpoint, rendered/deleted as a card by app.js). Has a drag-to-look
   fallback when no orientation sensor exists (desktop), and a
   `window.__arDebug` hook used by Playwright checks.
 
@@ -90,9 +95,14 @@ in app.js). Engine callers must pass the month of the simulated day through.
   means the same tree subtends different angles from different spots.
 - Persistence: JSON in `localStorage` under key `"sun-garden"`. `loadSaved()`
   migrates older shapes (e.g. the original single-`skyline` format); preserve
-  that migration behavior when changing the schema. `persist()` must spread
-  the previously-loaded object (`extraSaved`) so keys owned by other pages —
-  `arChecks` from ar.js — survive a rewrite.
+  that migration behavior when changing the schema. **Storage-ownership
+  rule**: app.js owns `lat/lon/active/spots`; ar.js owns `arChecks` (array of
+  `{ name, when, lat, lon, days: [{label, hours, coverage}] }`). Each writer
+  must merge over the JSON *as stored right now* (`readSaved()`), never a
+  load-time snapshot — iOS restores pages from the back-forward cache without
+  reloading, and a snapshot write silently deletes the other page's keys
+  (this was a real data-loss bug). For the same reason index.html re-renders
+  storage-derived UI on `pageshow` with `ev.persisted`.
 - **Canvas view window**: the canvas shows a window of the sky (`view` object:
   azStart/azSpan/elMin/elMax). Full sky is 360°×0–90°; loading a panorama
   photo zooms the view to the photo. *All* coordinate mapping goes through
@@ -114,6 +124,37 @@ declination ±0.3°, equinox sunrise due east, known day lengths, hemisphere
 behavior) using tolerance helper `approx()` — not snapshot values. When adding
 engine features, test physical invariants (e.g. "blocking never adds sun",
 "intervals sum to the integration") rather than exact decimals.
+
+## Status & near-term roadmap (as of 2026-07-02)
+
+Field-verified on the owner's iPhone 12 Pro: pano loading/zoom/tracing works;
+AR arcs are steady while panning (after the motion-gated compass + align-to-
+sun rework — owner-confirmed); the sweep spot-check produces per-season
+hours. Known rough edges:
+
+- The sweep's sky classifier is a v1 color heuristic (`isSky` in ar.js):
+  bright white walls can read as sky, heavy overcast confuses it. PLAN.md §5
+  has the v2 path (on-device segmentation).
+- Camera FOV is a constant guess (`V_FOV` in ar.js); browsers don't expose
+  it. Vertical arc placement is approximate; azimuth is what matters and
+  align-to-sun fixes that.
+- The arChecks save flow had a bfcache data-loss bug (fixed 2026-07-02, see
+  the storage-ownership rule above) — worth re-verifying on device.
+
+Agreed direction from product discussions with the owner (see PRs #5–#7):
+the AR spot check is the beginner-friendly front door; the chosen path to
+"sun map the whole garden" is the **top-down shadow simulator** (PLAN.md §2
+"Complementary method" / Phase 2) — sketch obstacles once, ray-cast shadows,
+whole-garden heatmap with a month slider; saved `arChecks` become its
+validation data. Other agreed candidates: auto sky segmentation for the pano
+tracer. Positioning: free measurement core, one-time Pro unlock, no ads;
+differentiators are deciduous awareness, sun-tap calibration, and
+plant-language output (PLAN.md §8).
+
+Operational note: GitHub Pages deploys occasionally stick in
+`deployment_queued` and time out (happened 2026-07-02, GitHub-side). The
+un-cancellable retry blocks `rerun`; the fix is pushing a commit to `main`
+(empty is fine) to start a fresh run.
 
 ## Workflow authorization
 
