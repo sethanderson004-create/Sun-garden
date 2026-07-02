@@ -1,0 +1,11 @@
+{
+  "name": "sun-garden",
+  "version": "0.1.0",
+  "description": "Phone-friendly garden sun mapping prototype: trace your skyline, get sun hours for the whole year.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "start": "python3 -m http.server 8000"
+  },
+  "license": "MIT"
+}
