@@ -163,7 +163,9 @@
       from each viewpoint. Stand there, look around, and <strong>drag on the panorama</strong> to draw what
       blocks the sky; drag to the bottom to erase. Use the <strong>Deciduous tree</strong> brush for trees that
       drop their leaves — they only block sun during the leaf-on months (drawn in green).
-      Optionally load a panorama photo (0–360°, left edge facing north) as a tracing guide.
+      Optionally load a panorama photo as a tracing guide — see
+      <strong>“How to take the panorama photo”</strong> below, then use the alignment fields to
+      position it on the compass.
     </p>
     <div class="controls" style="margin-bottom:10px">
       <div class="field"><label for="spotSel">Spot</label><select id="spotSel"></select></div>
@@ -178,6 +180,37 @@
       </span>
       <label><input id="photo" type="file" accept="image/*" hidden /><button id="photoBtn">Load panorama photo…</button></label>
       <button id="reset">Reset skyline</button>
+    </div>
+    <details class="measure" style="margin-bottom:10px">
+      <summary>📷 How to take the panorama photo</summary>
+      <ol class="hint" style="margin:8px 0; padding-left: 20px">
+        <li><strong>Take it with your camera's Pano mode first</strong> — this button can't capture a
+          panorama itself; it loads one you've already taken. In the picker, choose
+          <strong>Photo Library / Files</strong>, not "Take photo" (a single snapshot only covers ~70°).</li>
+        <li>Stand exactly at the spot — and if the plant is low (a hedge, a bed), hold the phone at
+          the <strong>plant's height</strong>, since a nearby fence looks completely different from
+          down there.</li>
+        <li>Before sweeping, note the compass direction you're facing at the start (a compass app
+          helps, or use the sun's position as a reference).</li>
+        <li>Hold the phone level, keep the horizon across the middle of the frame, and sweep slowly
+          in one smooth pass. Cover the whole arc the sun uses: in the northern hemisphere sweep
+          from northeast through south to northwest. A typical phone pano spans 180–240°.</li>
+        <li>Load it here, then set the alignment fields that appear: the direction the
+          <strong>left edge</strong> faces, how many degrees the sweep covered, and the elevation at
+          the photo's top and bottom edges (a level pano centered on the horizon is roughly
+          −25° to +25°). Nudge until landmarks sit over the right compass letters, then trace.</li>
+      </ol>
+    </details>
+    <div class="controls" id="photoAlign" style="display:none; margin-bottom:10px">
+      <div class="field"><label for="photoAzStart">Left edge faces (° az)</label>
+        <input id="photoAzStart" type="number" step="5" value="0" title="0 = N, 90 = E, 180 = S, 270 = W" /></div>
+      <div class="field"><label for="photoSpan">Photo covers (°)</label>
+        <input id="photoSpan" type="number" min="30" max="360" step="5" value="360" /></div>
+      <div class="field"><label for="photoTopEl">Top edge (° elev)</label>
+        <input id="photoTopEl" type="number" min="-80" max="90" step="5" value="90" /></div>
+      <div class="field"><label for="photoBotEl">Bottom edge (° elev)</label>
+        <input id="photoBotEl" type="number" min="-90" max="80" step="5" value="0" /></div>
+      <button id="photoClear">Remove photo</button>
     </div>
     <details class="measure" style="margin-bottom:10px">
       <summary>Too close to trace? Enter measurements instead</summary>
