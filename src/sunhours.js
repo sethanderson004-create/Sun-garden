@@ -2,9 +2,11 @@
  * Sun-hours computation: combine the deterministic sun path with a
  * user-captured skyline profile to get direct-sun hours per day.
  *
- * A skyline profile is a function az → elevation (degrees): the angle below
- * which the sky is blocked in that compass direction. An open horizon is
- * `() => 0`.
+ * A skyline profile is a function (az, month) → elevation (degrees): the
+ * angle below which the sky is blocked in that compass direction. The month
+ * (1–12) of the day being simulated lets seasonal obstructions — deciduous
+ * trees that are bare half the year — block only while in leaf. An open
+ * horizon is `() => 0`.
  */
 
 import { solarPosition, solarNoonUtcMs } from './solar.js';
@@ -33,9 +35,33 @@ export function sunHoursForDay(lat, lon, year, month, day, skylineAt = OPEN_HORI
   let litMinutes = 0;
   for (let m = -720; m < 720; m += stepMinutes) {
     const { azimuth, elevation } = solarPosition(lat, lon, noon + m * 60000);
-    if (elevation > Math.max(0, skylineAt(azimuth))) litMinutes += stepMinutes;
+    if (elevation > Math.max(0, skylineAt(azimuth, month))) litMinutes += stepMinutes;
   }
   return litMinutes / 60;
+}
+
+/**
+ * The lit stretches of one day: intervals (in minutes relative to approximate
+ * solar noon, so 0 ≈ 12:00 solar time) during which the spot receives direct
+ * sun. This is what answers "when does the big tree shade this bed?".
+ */
+export function sunIntervalsForDay(lat, lon, year, month, day, skylineAt = OPEN_HORIZON, stepMinutes = 5) {
+  const noon = solarNoonUtcMs(year, month, day, lon);
+  const intervals = [];
+  let current = null;
+  for (let m = -720; m <= 720; m += stepMinutes) {
+    const { azimuth, elevation } = solarPosition(lat, lon, noon + m * 60000);
+    const lit = elevation > Math.max(0, skylineAt(azimuth, month));
+    if (lit) {
+      if (!current) current = { startMin: m, endMin: m };
+      else current.endMin = m;
+    } else if (current) {
+      intervals.push(current);
+      current = null;
+    }
+  }
+  if (current) intervals.push(current);
+  return intervals;
 }
 
 /**

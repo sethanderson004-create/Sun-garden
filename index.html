@@ -27,6 +27,8 @@
     --path-today: #eb6834;
     --skyline-fill: rgba(82, 81, 78, 0.62);
     --skyline-edge: #52514e;
+    --leafy-fill: rgba(27, 175, 122, 0.30);
+    --leafy-edge: #1baf7a;
     --accent: #2a78d6;
   }
   @media (prefers-color-scheme: dark) {
@@ -50,6 +52,8 @@
       --path-today: #d95926;
       --skyline-fill: rgba(195, 194, 183, 0.30);
       --skyline-edge: #c3c2b7;
+      --leafy-fill: rgba(25, 158, 112, 0.35);
+      --leafy-edge: #199e70;
       --accent: #3987e5;
     }
   }
@@ -119,6 +123,11 @@
   td.num { font-variant-numeric: tabular-nums; }
   th { color: var(--text-muted); font-weight: 500; font-size: 12px; }
   svg text { font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .brushes { display: inline-flex; gap: 14px; align-items: center; padding: 6px 0; }
+  .brushes label { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; cursor: pointer; }
+  .hint-inline { color: var(--text-muted); font-size: 12px; }
+  .timeline-head { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+  .timeline-head h3 { font-size: 14px; margin: 0; }
 </style>
 </head>
 <body>
@@ -147,14 +156,26 @@
   </div>
 
   <div class="card">
-    <h2>2 · Trace your skyline</h2>
+    <h2>2 · Trace the skyline at each spot</h2>
     <p class="hint" style="margin:0 0 10px">
-      Stand at the spot you care about, look around, and <strong>drag on the panorama</strong> to draw the
-      outline of whatever blocks the sky — trees, house, fence. Drag to the bottom to erase.
+      Add a spot for each place you garden — a bed by the fence, the veggie patch, the porch.
+      <strong>Each spot gets its own skyline</strong>, because the same tree fills a different amount of sky
+      from each viewpoint. Stand there, look around, and <strong>drag on the panorama</strong> to draw what
+      blocks the sky; drag to the bottom to erase. Use the <strong>Deciduous tree</strong> brush for trees that
+      drop their leaves — they only block sun during the leaf-on months (drawn in green).
       Optionally load a panorama photo (0–360°, left edge facing north) as a tracing guide.
-      Colored arcs show the sun's path across your sky.
     </p>
     <div class="controls" style="margin-bottom:10px">
+      <div class="field"><label for="spotSel">Spot</label><select id="spotSel"></select></div>
+      <button id="addSpot">+ Add spot</button>
+      <button id="renameSpot">Rename</button>
+      <button id="delSpot">Delete</button>
+    </div>
+    <div class="controls" style="margin-bottom:10px">
+      <span class="brushes" role="radiogroup" aria-label="Drawing brush">
+        <label><input type="radio" name="brush" value="solid" checked /> Solid <span class="hint-inline">(house, fence, evergreen)</span></label>
+        <label><input type="radio" name="brush" value="leafy" /> Deciduous tree <span class="hint-inline">(bare in winter)</span></label>
+      </span>
       <label><input id="photo" type="file" accept="image/*" hidden /><button id="photoBtn">Load panorama photo…</button></label>
       <button id="reset">Reset skyline</button>
     </div>
@@ -178,8 +199,24 @@
           <summary>Show as table</summary>
           <table id="dataTable"><thead><tr><th>Month (21st)</th><th>Direct sun</th><th>Category</th></tr></thead><tbody></tbody></table>
         </details>
+        <div class="timeline-head">
+          <h3>Sun through the day</h3>
+          <select id="tlMonth" aria-label="Month for the daily timeline"></select>
+        </div>
+        <div class="legend">
+          <span><span class="swatch" style="background:var(--path-june)"></span>Direct sun</span>
+          <span><span class="swatch" style="background:var(--skyline-edge)"></span>Blocked by skyline</span>
+          <span><span class="swatch" style="background:var(--gridline)"></span>Sun below horizon</span>
+        </div>
+        <div id="timeline"></div>
+        <p class="hint" id="tlSummary"></p>
       </div>
     </div>
+  </div>
+
+  <div class="card" id="compareCard" style="display:none">
+    <h2>4 · Compare your spots</h2>
+    <table id="compareTable"><thead><tr><th>Spot</th><th>Today</th><th>Jun 21</th><th>Dec 21</th><th>Category today</th></tr></thead><tbody></tbody></table>
   </div>
 
   <p class="hint">Phase 0 prototype — the sun paths are exact astronomy for your location; the skyline is whatever you trace. See PLAN.md for the full app roadmap.</p>

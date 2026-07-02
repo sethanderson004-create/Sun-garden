@@ -18,6 +18,18 @@ A zero-dependency web prototype of the core pipeline: enter a location, trace
 your skyline on a panorama canvas (optionally over a photo), and get direct-sun
 hours for every month of the year with plant-label light categories.
 
+Features:
+
+- **Multiple spots** — each place you garden (fence bed, veggie patch, porch)
+  gets its own named skyline trace, since the same tree fills a different
+  amount of sky from each viewpoint. A comparison table summarizes today /
+  June / December sun for every spot.
+- **Deciduous trees** — a second brush draws tree canopy that only blocks sun
+  during leaf-on months (May–Oct in the northern hemisphere), so winter and
+  early-spring estimates stay honest.
+- **Daily sun timeline** — for any month, see exactly *when* a spot is lit vs
+  shaded ("sun until 07:20, tree shade until 09:10, sun again to 15:00…").
+
 ```sh
 npm start        # serves on http://localhost:8000 (any static server works)
 npm test         # unit tests for the solar engine (node --test)

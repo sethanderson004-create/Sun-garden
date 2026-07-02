@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { solarPosition, solarNoonUtcMs } from '../src/solar.js';
 import {
+  sunIntervalsForDay,
   sunHoursForDay,
   sunPathForDay,
   monthlyReport,
@@ -109,4 +110,31 @@ test('categorize maps hours to plant-label buckets', () => {
   assert.equal(categorize(5).name, 'Part sun');
   assert.equal(categorize(3).name, 'Part shade');
   assert.equal(categorize(0.5).name, 'Full shade');
+});
+
+test('deciduous obstruction: blocks in leaf, transparent in winter', () => {
+  // A "leafy tree" wall across the south at 45N: counts May–Oct only.
+  const inLeaf = (month) => month >= 5 && month <= 10;
+  const leafySouthWall = (az, month) =>
+    inLeaf(month) && az > 90 && az < 270 ? 70 : 0;
+
+  const decOpen = sunHoursForDay(45, 0, 2026, 12, 21, OPEN_HORIZON);
+  const decLeafy = sunHoursForDay(45, 0, 2026, 12, 21, leafySouthWall);
+  assert.equal(decLeafy, decOpen, 'bare tree in December blocks nothing');
+
+  const junOpen = sunHoursForDay(45, 0, 2026, 6, 21, OPEN_HORIZON);
+  const junLeafy = sunHoursForDay(45, 0, 2026, 6, 21, leafySouthWall);
+  assert.ok(junLeafy < junOpen - 4, `tree in leaf costs June hours (${junOpen} -> ${junLeafy})`);
+});
+
+test('sun intervals: a midday-blocking tree splits the day in two', () => {
+  const southWall = (az) => (az > 90 && az < 270 ? 70 : 0);
+  const intervals = sunIntervalsForDay(47, 0, 2026, 6, 21, southWall);
+  assert.ok(intervals.length >= 2, `expected morning+evening light, got ${intervals.length} interval(s)`);
+  assert.ok(intervals[0].endMin < 0 && intervals.at(-1).startMin > 0, 'lit before and after solar noon');
+
+  // Interval minutes must agree with the sun-hours integration.
+  const total = intervals.reduce((s, iv) => s + (iv.endMin - iv.startMin), 0) / 60;
+  const hours = sunHoursForDay(47, 0, 2026, 6, 21, southWall);
+  assert.ok(Math.abs(total - hours) < 0.35, `intervals (${total}h) match integration (${hours}h)`);
 });

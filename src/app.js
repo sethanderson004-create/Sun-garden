@@ -1,9 +1,22 @@
 /**
- * Sun-Garden prototype UI: skyline tracing canvas + monthly sun-hours report.
+ * Sun-Garden prototype UI: per-spot skyline tracing + monthly sun-hours
+ * report, daily sun timeline, and spot comparison.
+ *
+ * Each spot (fence bed, veggie patch, porch…) carries its own skyline,
+ * because the same tree fills a different share of the sky from each
+ * viewpoint. A skyline has two layers: solid obstructions (buildings,
+ * fences, evergreens) and deciduous trees, which only block during the
+ * leaf-on months for the hemisphere.
  */
 
 import { solarPosition } from './solar.js';
-import { sunHoursForDay, sunPathForDay, monthlyReport, categorize } from './sunhours.js';
+import {
+  sunHoursForDay,
+  sunPathForDay,
+  sunIntervalsForDay,
+  monthlyReport,
+  categorize,
+} from './sunhours.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const AZ_STEPS = 360; // skyline resolution: 1° bins
@@ -14,12 +27,21 @@ const cssVar = (name) => getComputedStyle(document.body).getPropertyValue(name).
 
 // ---------------------------------------------------------------- state
 
+function makeSpot(name) {
+  return { name, solid: new Float64Array(AZ_STEPS), leafy: new Float64Array(AZ_STEPS) };
+}
+
 const state = {
   lat: 47.6062,
   lon: -122.3321,
-  skyline: new Float64Array(AZ_STEPS),
+  spots: [makeSpot('Spot 1')],
+  active: 0,
+  brush: 'solid',
+  timelineMonth: new Date().getMonth() + 1,
   photo: null, // HTMLImageElement or null
 };
+
+const activeSpot = () => state.spots[state.active];
 
 function loadSaved() {
   try {
@@ -27,8 +49,17 @@ function loadSaved() {
     if (!saved) return;
     if (Number.isFinite(saved.lat)) state.lat = saved.lat;
     if (Number.isFinite(saved.lon)) state.lon = saved.lon;
-    if (Array.isArray(saved.skyline) && saved.skyline.length === AZ_STEPS) {
-      state.skyline.set(saved.skyline);
+    if (Array.isArray(saved.spots) && saved.spots.length) {
+      state.spots = saved.spots.map((s, i) => {
+        const spot = makeSpot(typeof s.name === 'string' ? s.name : `Spot ${i + 1}`);
+        if (Array.isArray(s.solid) && s.solid.length === AZ_STEPS) spot.solid.set(s.solid);
+        if (Array.isArray(s.leafy) && s.leafy.length === AZ_STEPS) spot.leafy.set(s.leafy);
+        return spot;
+      });
+      state.active = Math.min(saved.active ?? 0, state.spots.length - 1);
+    } else if (Array.isArray(saved.skyline) && saved.skyline.length === AZ_STEPS) {
+      // migrate the single-skyline format of the first prototype
+      state.spots[0].solid.set(saved.skyline);
     }
   } catch { /* ignore corrupt storage */ }
 }
@@ -36,15 +67,41 @@ function loadSaved() {
 function persist() {
   localStorage.setItem(
     'sun-garden',
-    JSON.stringify({ lat: state.lat, lon: state.lon, skyline: Array.from(state.skyline) }),
+    JSON.stringify({
+      lat: state.lat,
+      lon: state.lon,
+      active: state.active,
+      spots: state.spots.map((s) => ({
+        name: s.name,
+        solid: Array.from(s.solid),
+        leafy: Array.from(s.leafy),
+      })),
+    }),
   );
 }
 
-function skylineAt(az) {
+// ---------------------------------------------------------------- skyline
+
+function layerAt(arr, az) {
   const a = ((az % 360) + 360) % 360;
   const i = Math.floor(a);
   const f = a - i;
-  return state.skyline[i] * (1 - f) + state.skyline[(i + 1) % AZ_STEPS] * f;
+  return arr[i] * (1 - f) + arr[(i + 1) % AZ_STEPS] * f;
+}
+
+/** Leaf-on window: May–Oct in the northern hemisphere, Nov–Apr in the southern. */
+function inLeaf(month) {
+  return state.lat >= 0 ? month >= 5 && month <= 10 : month <= 4 || month >= 11;
+}
+
+/** Month-aware skyline for one spot: (az, month) → blocked elevation. */
+function skylineFor(spot) {
+  return (az, month) => {
+    const solid = layerAt(spot.solid, az);
+    return month === undefined || inLeaf(month)
+      ? Math.max(solid, layerAt(spot.leafy, az))
+      : solid;
+  };
 }
 
 // ---------------------------------------------------------------- canvas
@@ -72,8 +129,9 @@ function haloText(text, x, y) {
 
 let placedLabels = [];
 
-function drawSunPath(points, color, dashed, label) {
+function drawSunPath(points, color, dashed, label, month) {
   if (points.length === 0) return;
+  const skyline = skylineFor(activeSpot());
   ctx.lineWidth = 2;
   ctx.setLineDash(dashed ? [5, 5] : []);
 
@@ -86,7 +144,7 @@ function drawSunPath(points, color, dashed, label) {
     let pen = false;
     let prevAz = null;
     for (const p of points) {
-      const isBlocked = p.elevation <= Math.max(0, skylineAt(p.azimuth));
+      const isBlocked = p.elevation <= Math.max(0, skyline(p.azimuth, month));
       const wrap = prevAz !== null && Math.abs(p.azimuth - prevAz) > 180;
       prevAz = p.azimuth;
       if (isBlocked !== blocked || p.elevation < 0 || wrap) { pen = false; continue; }
@@ -128,6 +186,23 @@ function drawSunPath(points, color, dashed, label) {
   haloText(label, pos.x, pos.y);
 }
 
+function fillLayer(arr, fill, edge, dashedEdge) {
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  for (let a = 0; a <= AZ_STEPS; a++) {
+    ctx.lineTo(xOfAz(a), yOfEl(arr[a % AZ_STEPS]));
+  }
+  ctx.lineTo(W, H);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.strokeStyle = edge;
+  ctx.lineWidth = 2;
+  ctx.setLineDash(dashedEdge ? [6, 4] : []);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
 function draw() {
   placedLabels = [];
   ctx.clearRect(0, 0, W, H);
@@ -150,27 +225,18 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(xOfAz(az), 0); ctx.lineTo(xOfAz(az), H); ctx.stroke();
   }
 
-  // skyline (blocked region)
-  ctx.beginPath();
-  ctx.moveTo(0, H);
-  for (let a = 0; a <= AZ_STEPS; a++) {
-    ctx.lineTo(xOfAz(a), yOfEl(state.skyline[a % AZ_STEPS]));
-  }
-  ctx.lineTo(W, H);
-  ctx.closePath();
-  ctx.fillStyle = cssVar('--skyline-fill');
-  ctx.fill();
-  ctx.strokeStyle = cssVar('--skyline-edge');
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  // skyline layers: deciduous first, solid over it
+  const spot = activeSpot();
+  fillLayer(spot.leafy, cssVar('--leafy-fill'), cssVar('--leafy-edge'), true);
+  fillLayer(spot.solid, cssVar('--skyline-fill'), cssVar('--skyline-edge'), false);
 
   // sun paths: solstices + equinox + today
   const { y, m, d } = today();
-  drawSunPath(sunPathForDay(state.lat, state.lon, y, 6, 21), cssVar('--path-june'), false, 'Jun 21');
-  drawSunPath(sunPathForDay(state.lat, state.lon, y, 3, 21), cssVar('--path-equinox'), false, 'Mar / Sep 21');
-  drawSunPath(sunPathForDay(state.lat, state.lon, y, 12, 21), cssVar('--path-december'), false, 'Dec 21');
+  drawSunPath(sunPathForDay(state.lat, state.lon, y, 6, 21), cssVar('--path-june'), false, 'Jun 21', 6);
+  drawSunPath(sunPathForDay(state.lat, state.lon, y, 3, 21), cssVar('--path-equinox'), false, 'Mar / Sep 21', 3);
+  drawSunPath(sunPathForDay(state.lat, state.lon, y, 12, 21), cssVar('--path-december'), false, 'Dec 21', 12);
   if (!(m === 6 || m === 3 || m === 12) || d !== 21) {
-    drawSunPath(sunPathForDay(state.lat, state.lon, y, m, d), cssVar('--path-today'), true, 'Today');
+    drawSunPath(sunPathForDay(state.lat, state.lon, y, m, d), cssVar('--path-today'), true, 'Today', m);
   }
 
   // the sun right now, if up
@@ -204,15 +270,16 @@ let drawing = false;
 let lastAz = null;
 
 function paintSkyline(az, el) {
+  const arr = activeSpot()[state.brush];
   const a = Math.round(((az % 360) + 360) % 360) % AZ_STEPS;
   const v = Math.max(0, Math.min(85, el));
   if (lastAz !== null && Math.abs(a - lastAz) <= 180) {
     // fill the bins the pointer skipped over during a fast drag
     const from = Math.min(lastAz, a);
     const to = Math.max(lastAz, a);
-    for (let i = from; i <= to; i++) state.skyline[i] = v;
+    for (let i = from; i <= to; i++) arr[i] = v;
   } else {
-    state.skyline[a] = v;
+    arr[a] = v;
   }
   lastAz = a;
 }
@@ -236,10 +303,10 @@ canvas.addEventListener('pointerdown', (ev) => {
 
 canvas.addEventListener('pointermove', (ev) => {
   const { az, el } = pointerPos(ev);
-  const blocked = el <= Math.max(0, skylineAt(az));
+  const blocked = el <= Math.max(0, skylineFor(activeSpot())(az, today().m));
   $('readout').textContent =
     `Azimuth ${az.toFixed(0)}° · elevation ${el.toFixed(0)}° — ` +
-    (blocked ? 'blocked by skyline here' : 'open sky here');
+    (blocked ? 'blocked by skyline here (this month)' : 'open sky here');
   if (!drawing) return;
   paintSkyline(az, el);
   draw();
@@ -335,17 +402,89 @@ function renderTable(report) {
     .join('');
 }
 
+// -------- daily sun timeline ("when exactly is this spot shaded?")
+
+const fmtSolar = (minFromNoon) => {
+  const t = 720 + minFromNoon;
+  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.round(t % 60)).padStart(2, '0')}`;
+};
+
+function renderTimeline() {
+  const { y } = today();
+  const month = state.timelineMonth;
+  const skyline = skylineFor(activeSpot());
+  const vbW = 720, vbH = 64;
+  const mL = 8, mR = 8, top = 8, barH = 26;
+  const winStart = -480, winEnd = 600; // 04:00 → 22:00 solar time
+  const xOf = (min) => mL + ((min - winStart) / (winEnd - winStart)) * (vbW - mL - mR);
+  const step = 5;
+
+  // Build per-step status: 0 night, 1 blocked, 2 lit.
+  const statuses = [];
+  const noonMs = Date.UTC(y, month - 1, 21, 12) - (state.lon / 15) * 3600000;
+  for (let m = winStart; m <= winEnd; m += step) {
+    const { azimuth, elevation } = solarPosition(state.lat, state.lon, noonMs + m * 60000);
+    statuses.push({
+      m,
+      s: elevation <= 0 ? 0 : elevation > Math.max(0, skyline(azimuth, month)) ? 2 : 1,
+    });
+  }
+
+  const colors = ['var(--gridline)', 'var(--skyline-edge)', 'var(--path-june)'];
+  let s = `<svg viewBox="0 0 ${vbW} ${vbH}" role="img" aria-label="Direct sun through the day on ${MONTHS[month - 1]} 21">`;
+  for (let i = 0; i < statuses.length - 1; i++) {
+    s += `<rect x="${xOf(statuses[i].m)}" y="${top}" width="${xOf(statuses[i + 1].m) - xOf(statuses[i].m) + 0.5}" height="${barH}" fill="${colors[statuses[i].s]}"/>`;
+  }
+  for (let hh = 6; hh <= 21; hh += 3) {
+    const x = xOf((hh - 12) * 60);
+    s += `<line x1="${x}" x2="${x}" y1="${top}" y2="${top + barH + 4}" stroke="var(--baseline)" stroke-width="1"/>`;
+    s += `<text x="${x}" y="${vbH - 8}" text-anchor="middle" fill="var(--text-muted)">${String(hh).padStart(2, '0')}:00</text>`;
+  }
+  s += '</svg>';
+  $('timeline').innerHTML = s;
+
+  const intervals = sunIntervalsForDay(state.lat, state.lon, y, month, 21, skyline);
+  const total = intervals.reduce((sum, iv) => sum + (iv.endMin - iv.startMin), 0) / 60;
+  $('tlSummary').textContent = intervals.length
+    ? `Direct sun ${intervals.map((iv) => `${fmtSolar(iv.startMin)}–${fmtSolar(iv.endMin)}`).join(', ')} · ${total.toFixed(1)} h total (local solar time; noon = sun highest)`
+    : 'No direct sun at this spot on this day.';
+}
+
+// -------- spot comparison
+
+function renderComparison() {
+  const { y, m, d } = today();
+  $('compareCard').style.display = state.spots.length > 1 ? '' : 'none';
+  if (state.spots.length < 2) return;
+  $('compareTable').querySelector('tbody').innerHTML = state.spots
+    .map((spot, i) => {
+      const sk = skylineFor(spot);
+      const now = sunHoursForDay(state.lat, state.lon, y, m, d, sk);
+      const jun = sunHoursForDay(state.lat, state.lon, y, 6, 21, sk);
+      const dec = sunHoursForDay(state.lat, state.lon, y, 12, 21, sk);
+      const cat = categorize(now);
+      const active = i === state.active ? ' style="font-weight:600"' : '';
+      return `<tr${active}><td>${spot.name}</td><td class="num">${now.toFixed(1)} h</td><td class="num">${jun.toFixed(1)} h</td><td class="num">${dec.toFixed(1)} h</td>
+        <td><span class="swatch" style="background:${catColor(cat.name)}"></span> ${cat.name}</td></tr>`;
+    })
+    .join('');
+}
+
 function recompute() {
   const { y, m, d } = today();
-  const report = monthlyReport(state.lat, state.lon, y, skylineAt);
-  const todayHours = sunHoursForDay(state.lat, state.lon, y, m, d, skylineAt);
+  const skyline = skylineFor(activeSpot());
+  const report = monthlyReport(state.lat, state.lon, y, skyline);
+  const todayHours = sunHoursForDay(state.lat, state.lon, y, m, d, skyline);
   const cat = categorize(todayHours);
 
   $('heroHours').textContent = `${todayHours.toFixed(1)} h`;
+  $('heroSub').textContent = `direct sun today at “${activeSpot().name}”`;
   $('heroChip').innerHTML =
     `<span class="swatch" style="background:${catColor(cat.name)}"></span>${cat.name}`;
   renderChart(report, m);
   renderTable(report);
+  renderTimeline();
+  renderComparison();
 }
 
 let recomputeTimer = null;
@@ -355,6 +494,62 @@ function scheduleRecompute() {
 }
 
 // ---------------------------------------------------------------- controls
+
+function renderSpotSelect() {
+  $('spotSel').innerHTML = state.spots
+    .map((s, i) => `<option value="${i}" ${i === state.active ? 'selected' : ''}>${s.name.replace(/</g, '&lt;')}</option>`)
+    .join('');
+}
+
+$('spotSel').addEventListener('change', (ev) => {
+  state.active = Number(ev.target.value);
+  persist();
+  draw();
+  scheduleRecompute();
+});
+
+$('addSpot').addEventListener('click', () => {
+  const name = (prompt('Name this spot (e.g. "Fence bed", "Porch"):', `Spot ${state.spots.length + 1}`) || '').trim();
+  if (!name) return;
+  state.spots.push(makeSpot(name));
+  state.active = state.spots.length - 1;
+  renderSpotSelect();
+  persist();
+  draw();
+  scheduleRecompute();
+});
+
+$('renameSpot').addEventListener('click', () => {
+  const name = (prompt('New name for this spot:', activeSpot().name) || '').trim();
+  if (!name) return;
+  activeSpot().name = name;
+  renderSpotSelect();
+  persist();
+  recompute();
+});
+
+$('delSpot').addEventListener('click', () => {
+  if (state.spots.length === 1) {
+    alert('At least one spot is needed — use “Reset skyline” to clear it instead.');
+    return;
+  }
+  if (!confirm(`Delete “${activeSpot().name}” and its skyline?`)) return;
+  state.spots.splice(state.active, 1);
+  state.active = Math.max(0, state.active - 1);
+  renderSpotSelect();
+  persist();
+  draw();
+  scheduleRecompute();
+});
+
+document.querySelectorAll('input[name="brush"]').forEach((el) => {
+  el.addEventListener('change', () => { state.brush = el.value; });
+});
+
+$('tlMonth').addEventListener('change', (ev) => {
+  state.timelineMonth = Number(ev.target.value);
+  renderTimeline();
+});
 
 function setLocation(lat, lon) {
   state.lat = Math.max(-89.9, Math.min(89.9, lat));
@@ -394,7 +589,8 @@ $('photo').addEventListener('change', (ev) => {
 });
 
 $('reset').addEventListener('click', () => {
-  state.skyline.fill(0);
+  activeSpot().solid.fill(0);
+  activeSpot().leafy.fill(0);
   persist();
   draw();
   scheduleRecompute();
@@ -410,6 +606,10 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 loadSaved();
 $('lat').value = state.lat;
 $('lon').value = state.lon;
+$('tlMonth').innerHTML = MONTHS
+  .map((n, i) => `<option value="${i + 1}" ${i + 1 === state.timelineMonth ? 'selected' : ''}>${n} 21</option>`)
+  .join('');
+renderSpotSelect();
 renderLegend();
 draw();
 recompute();
