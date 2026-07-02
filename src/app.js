@@ -12,15 +12,15 @@
 // The ?v= query is cache busting for GitHub Pages (max-age=600): it keeps a
 // cached module from pairing with a newer index.html. Bump every '?v=' in the
 // repo together (grep for it) whenever index.html or anything in src/ changes.
-import { solarPosition } from './solar.js?v=3';
+import { solarPosition } from './solar.js?v=4';
 import {
   sunHoursForDay,
   sunPathForDay,
   sunIntervalsForDay,
   monthlyReport,
   categorize,
-} from './sunhours.js?v=3';
-import { fenceProfile, treeProfile, paintProfile } from './obstacles.js?v=3';
+} from './sunhours.js?v=4';
+import { fenceProfile, treeProfile, paintProfile } from './obstacles.js?v=4';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const AZ_STEPS = 360; // skyline resolution: 1° bins
@@ -54,10 +54,15 @@ const state = {
 
 const activeSpot = () => state.spots[state.active];
 
+// Keys in the saved JSON that other pages own (e.g. arChecks written by
+// ar.js) — persist() must carry them through, not drop them.
+let extraSaved = {};
+
 function loadSaved() {
   try {
     const saved = JSON.parse(localStorage.getItem('sun-garden') || 'null');
     if (!saved) return;
+    if (typeof saved === 'object') extraSaved = saved;
     if (Number.isFinite(saved.lat)) state.lat = saved.lat;
     if (Number.isFinite(saved.lon)) state.lon = saved.lon;
     if (Array.isArray(saved.spots) && saved.spots.length) {
@@ -79,6 +84,7 @@ function persist() {
   localStorage.setItem(
     'sun-garden',
     JSON.stringify({
+      ...extraSaved,
       lat: state.lat,
       lon: state.lon,
       active: state.active,
@@ -564,6 +570,32 @@ function renderComparison() {
     .join('');
 }
 
+// -------- spot checks logged by the AR view (ar.js writes arChecks)
+
+function renderArChecks() {
+  const checks = Array.isArray(extraSaved.arChecks) ? extraSaved.arChecks : [];
+  $('arChecksCard').style.display = checks.length ? '' : 'none';
+  if (!checks.length) return;
+  $('arChecksTable').querySelector('tbody').innerHTML = checks
+    .map((c, i) => {
+      const hours = (c.days || [])
+        .map((d) => `${d.label} <span class="num">${Number(d.hours).toFixed(1)} h</span>`)
+        .join(' · ');
+      return `<tr><td>${String(c.name).replace(/</g, '&lt;')}</td>
+        <td>${new Date(c.when).toLocaleDateString()}</td><td>${hours}</td>
+        <td><a href="https://www.google.com/maps?q=${Number(c.lat)},${Number(c.lon)}" target="_blank" rel="noopener">${Number(c.lat).toFixed(5)}, ${Number(c.lon).toFixed(5)}</a></td>
+        <td><button data-delcheck="${i}" title="Delete this spot check">✕</button></td></tr>`;
+    })
+    .join('');
+  $('arChecksTable').querySelectorAll('[data-delcheck]').forEach((el) =>
+    el.addEventListener('click', () => {
+      checks.splice(Number(el.dataset.delcheck), 1);
+      persist();
+      renderArChecks();
+    }),
+  );
+}
+
 function recompute() {
   const { y, m, d } = today();
   const skyline = skylineFor(activeSpot());
@@ -800,5 +832,6 @@ $('tlMonth').innerHTML = MONTHS
   .join('');
 renderSpotSelect();
 renderLegend();
+renderArChecks();
 draw();
 recompute();

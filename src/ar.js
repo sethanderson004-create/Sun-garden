@@ -15,8 +15,8 @@
  *   frame; we project world points with d = Rᵀ·v and a pinhole model.
  */
 
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=3';
-import { sunPathForDay, categorize } from './sunhours.js?v=3';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=4';
+import { sunPathForDay, categorize } from './sunhours.js?v=4';
 
 const $ = (id) => document.getElementById(id);
 const cssVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
@@ -109,32 +109,77 @@ function buildDays() {
 }
 
 // ---------------------------------------------------------------- orientation
+//
+// Complementary filter. The relative deviceorientation stream (gyro-fused by
+// the OS: smooth, but with an arbitrary yaw zero that drifts) drives
+// frame-to-frame motion. Raw compass headings jump around by ±10° while the
+// phone pans, so steering the view with them directly makes the arcs swim —
+// instead the compass only *slowly* pulls the yaw reference, and "Align to
+// sun" pins it exactly.
 
-// Latest smoothed device orientation (degrees) and its rotation matrix.
-let euler = null; // { alpha, beta, gamma }
+let att = null; // relative attitude {alpha, beta, gamma}, lightly smoothed
+let headingOffset = null; // yaw anchor: absolute alpha ≈ att.alpha + headingOffset
+let lastRelMs = -Infinity;
 let R = [1, 0, 0, 0, 1, 0, 0, 0, 1]; // row-major device→world
 
-const angleLerp = (a, b, t) => a + (((b - a + 540) % 360) - 180) * t;
+const angleDiff = (a, b) => ((((a - b) % 360) + 540) % 360) - 180; // shortest a−b
+const angleLerp = (a, b, t) => a + angleDiff(b, a) * t;
 
-function onOrientation(ev) {
-  if (ev.beta === null || ev.beta === undefined) return;
-  // iOS alpha is arbitrary; webkitCompassHeading is absolute (magnetic north).
-  const alpha = ev.webkitCompassHeading !== undefined ? 360 - ev.webkitCompassHeading : (ev.alpha ?? 0);
-  if (!euler) euler = { alpha, beta: ev.beta, gamma: ev.gamma ?? 0 };
-  else {
-    euler.alpha = angleLerp(euler.alpha, alpha, 0.35);
-    euler.beta = angleLerp(euler.beta, ev.beta, 0.35);
-    euler.gamma = angleLerp(euler.gamma, ev.gamma ?? 0, 0.35);
-  }
-  const cA = Math.cos(euler.alpha * D2R), sA = Math.sin(euler.alpha * D2R);
-  const cB = Math.cos(euler.beta * D2R), sB = Math.sin(euler.beta * D2R);
-  const cG = Math.cos(euler.gamma * D2R), sG = Math.sin(euler.gamma * D2R);
+function anchorHeading(absAlpha) {
+  if (!att) return;
+  const target = absAlpha - att.alpha;
+  headingOffset = headingOffset === null
+    ? angleDiff(target, 0)
+    : angleLerp(headingOffset, target, 0.04); // ≈1.5 s time constant at 60 Hz
+}
+
+function rebuildR() {
+  const alpha = att.alpha + (headingOffset ?? 0);
+  const cA = Math.cos(alpha * D2R), sA = Math.sin(alpha * D2R);
+  const cB = Math.cos(att.beta * D2R), sB = Math.sin(att.beta * D2R);
+  const cG = Math.cos(att.gamma * D2R), sG = Math.sin(att.gamma * D2R);
   R = [
     cA * cG - sA * sB * sG, -sA * cB, cA * sG + sA * sB * cG,
     sA * cG + cA * sB * sG, cA * cB, sA * sG - cA * sB * cG,
     -cB * sG, sB, cB * cG,
   ];
   state.manualLook = false;
+}
+
+/** Relative attitude stream (fires ~60 Hz on phones). */
+function onRelOrientation(ev) {
+  if (ev.beta === null || ev.beta === undefined) return;
+  lastRelMs = performance.now();
+  const next = { alpha: ev.alpha ?? 0, beta: ev.beta, gamma: ev.gamma ?? 0 };
+  att = att
+    ? {
+        alpha: angleLerp(att.alpha, next.alpha, 0.6),
+        beta: angleLerp(att.beta, next.beta, 0.6),
+        gamma: angleLerp(att.gamma, next.gamma, 0.6),
+      }
+    : next;
+  // iOS: the (magnetic-north) compass rides along on the relative event
+  if (ev.webkitCompassHeading !== undefined) anchorHeading(360 - ev.webkitCompassHeading);
+  rebuildR();
+}
+
+/** Absolute orientation (Android): compass anchor — and attitude fallback. */
+function onAbsOrientation(ev) {
+  if (ev.beta === null || ev.beta === undefined) return;
+  if (performance.now() - lastRelMs > 1000) {
+    // no relative stream on this device: absolute is also the attitude,
+    // which makes anchorHeading's target settle to ~0
+    const next = { alpha: ev.alpha ?? 0, beta: ev.beta, gamma: ev.gamma ?? 0 };
+    att = att
+      ? {
+          alpha: angleLerp(att.alpha, next.alpha, 0.6),
+          beta: angleLerp(att.beta, next.beta, 0.6),
+          gamma: angleLerp(att.gamma, next.gamma, 0.6),
+        }
+      : next;
+  }
+  anchorHeading(ev.alpha ?? 0);
+  rebuildR();
 }
 
 // ---------------------------------------------------------------- projection
@@ -431,6 +476,7 @@ function renderChips() {
 
   const today = days.find((d) => d.today);
   const res = today && sweepResults(today);
+  $('saveBtn').disabled = !(res && res.coverage >= 0.5);
   if (res && res.coverage >= 0.85) {
     const cat = categorize(res.hours);
     $('advice').style.display = '';
@@ -489,6 +535,49 @@ $('sweepBtn').addEventListener('click', () => {
   renderChips();
 });
 
+// -------- save a spot check (results + where you stood)
+
+function persistCheck(entry) {
+  try {
+    const saved = JSON.parse(localStorage.getItem('sun-garden') || 'null') || {};
+    saved.arChecks = [...(Array.isArray(saved.arChecks) ? saved.arChecks : []), entry].slice(-50);
+    localStorage.setItem('sun-garden', JSON.stringify(saved));
+    toast(`Saved “${entry.name}” ✓ — it's listed on the tracer page.`);
+  } catch {
+    toast('Could not save — browser storage is unavailable.');
+  }
+}
+
+$('saveBtn').addEventListener('click', () => {
+  const name = (prompt('Name this spot check (e.g. "Blueberry bed"):', 'My spot') || '').trim();
+  if (!name) return;
+  const entry = {
+    name,
+    when: new Date().toISOString(),
+    lat: state.lat,
+    lon: state.lon,
+    days: days.map((d) => {
+      const r = sweepResults(d);
+      return { label: d.label, hours: +r.hours.toFixed(2), coverage: +r.coverage.toFixed(2) };
+    }),
+  };
+  // log the precise standpoint if a quick GPS fix is available; otherwise
+  // fall back to the garden's saved location
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        entry.lat = pos.coords.latitude;
+        entry.lon = pos.coords.longitude;
+        persistCheck(entry);
+      },
+      () => persistCheck(entry),
+      { timeout: 4000, enableHighAccuracy: true },
+    );
+  } else {
+    persistCheck(entry);
+  }
+});
+
 // drag-to-look fallback (desktop or no sensor)
 let dragging = null;
 canvas.addEventListener('pointerdown', (ev) => {
@@ -532,12 +621,11 @@ $('startBtn').addEventListener('click', async () => {
       await DeviceOrientationEvent.requestPermission();
     }
   } catch { /* declined — manual look kicks in below */ }
-  // one source only: absolute (Android) when available, else plain
-  // deviceorientation (iOS, where webkitCompassHeading makes it absolute)
+  // relative stream for smooth attitude; absolute stream (where it exists)
+  // anchors the compass heading — see the complementary filter above
+  window.addEventListener('deviceorientation', onRelOrientation);
   if ('ondeviceorientationabsolute' in window) {
-    window.addEventListener('deviceorientationabsolute', onOrientation);
-  } else {
-    window.addEventListener('deviceorientation', onOrientation);
+    window.addEventListener('deviceorientationabsolute', onAbsOrientation);
   }
 
   // 2 — camera (optional: without it the arcs draw over a sky gradient)
@@ -560,7 +648,7 @@ $('startBtn').addEventListener('click', async () => {
 
   // no orientation events? fall back to dragging
   setTimeout(() => {
-    if (!euler) {
+    if (!att) {
       state.manualLook = true;
       toast('No compass detected — drag to look around.');
     }
