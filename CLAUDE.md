@@ -46,9 +46,14 @@ The codebase is split into a pure computational engine (tested) and a UI layer
   device-orientation compass/gyro, sun arcs projected via a pinhole model,
   one-tap "align to sun" compass correction, and a sweep spot-check that
   classifies sky pixels along the arcs into per-season sun hours. Sensors,
-  camera, and pixel work stay here; it imports only engine modules. Reads
-  lat/lon from the same `"sun-garden"` localStorage key as app.js. Has a
-  drag-to-look fallback when no orientation sensor exists (desktop), and a
+  camera, and pixel work stay here; it imports only engine modules.
+  Orientation uses a complementary filter: the smooth *relative*
+  deviceorientation stream drives motion and the noisy compass only slowly
+  steers the yaw anchor (raw compass headings jump ±10° while panning — do
+  not point the view with them directly). Reads/writes the same
+  `"sun-garden"` localStorage key as app.js (lat/lon shared; saved sweeps
+  land in `arChecks`, rendered as a card by app.js). Has a drag-to-look
+  fallback when no orientation sensor exists (desktop), and a
   `window.__arDebug` hook used by Playwright checks.
 
 Keep computation in the engine modules where `node --test` can reach it; the
@@ -85,7 +90,9 @@ in app.js). Engine callers must pass the month of the simulated day through.
   means the same tree subtends different angles from different spots.
 - Persistence: JSON in `localStorage` under key `"sun-garden"`. `loadSaved()`
   migrates older shapes (e.g. the original single-`skyline` format); preserve
-  that migration behavior when changing the schema.
+  that migration behavior when changing the schema. `persist()` must spread
+  the previously-loaded object (`extraSaved`) so keys owned by other pages —
+  `arChecks` from ar.js — survive a rewrite.
 - **Canvas view window**: the canvas shows a window of the sky (`view` object:
   azStart/azSpan/elMin/elMax). Full sky is 360°×0–90°; loading a panorama
   photo zooms the view to the photo. *All* coordinate mapping goes through
