@@ -108,6 +108,13 @@ behavior) using tolerance helper `approx()` — not snapshot values. When adding
 engine features, test physical invariants (e.g. "blocking never adds sun",
 "intervals sum to the integration") rather than exact decimals.
 
+## Workflow authorization
+
+Standing instruction from the repo owner (2026-07-02): **Claude may always
+pull and merge on this project without asking** — including merging its own
+PRs to `main` (which deploys via GitHub Pages). Merge only work that has been
+verified first (unit tests pass; UI changes exercised via Playwright).
+
 ## Deployment
 
 GitHub Pages serves the repo root from `main` at
