@@ -42,6 +42,14 @@ The codebase is split into a pure computational engine (tested) and a UI layer
   a tape measure beats tracing.
 - **`src/app.js` + `index.html`** — all state, canvas rendering, and DOM.
   Imports the engine; the engine never imports from here.
+- **`src/ar.js` + `ar.html`** — the AR sun view (beta): camera passthrough +
+  device-orientation compass/gyro, sun arcs projected via a pinhole model,
+  one-tap "align to sun" compass correction, and a sweep spot-check that
+  classifies sky pixels along the arcs into per-season sun hours. Sensors,
+  camera, and pixel work stay here; it imports only engine modules. Reads
+  lat/lon from the same `"sun-garden"` localStorage key as app.js. Has a
+  drag-to-look fallback when no orientation sensor exists (desktop), and a
+  `window.__arDebug` hook used by Playwright checks.
 
 Keep computation in the engine modules where `node --test` can reach it; the
 engine must stay browser/node agnostic (no DOM, no Date.now() side effects in
@@ -100,9 +108,27 @@ behavior) using tolerance helper `approx()` — not snapshot values. When adding
 engine features, test physical invariants (e.g. "blocking never adds sun",
 "intervals sum to the integration") rather than exact decimals.
 
+## Workflow authorization
+
+Standing instruction from the repo owner (2026-07-02): **Claude may always
+pull and merge on this project without asking** — including merging its own
+PRs to `main` (which deploys via GitHub Pages). Merge only work that has been
+verified first (unit tests pass; UI changes exercised via Playwright).
+
 ## Deployment
 
 GitHub Pages serves the repo root from `main` at
 https://sethanderson004-create.github.io/Sun-garden/ — changes are live a
 minute or two after merging to `main`. Everything must keep working as static
 files over HTTPS with no server (geolocation requires the HTTPS origin).
+
+**Cache busting is mandatory when shipping changes.** GitHub Pages serves
+everything with `max-age=600`, so for up to ~10 minutes after a deploy a
+browser can pair a fresh `index.html` with a stale cached module (this once
+shipped a "broken" pano zoom: new HTML + old cached app.js, no errors, just
+wrong behavior). Every browser-loaded module URL therefore carries a `?v=N`
+query — the `<script>` tag in `index.html` and every relative import in
+`src/`. When a change touches `index.html` or anything in `src/`, bump N
+everywhere in the same commit: `grep -rn '?v=' index.html src/` must show one
+consistent number. Node's test runner resolves queried imports fine, so the
+tests are unaffected.
