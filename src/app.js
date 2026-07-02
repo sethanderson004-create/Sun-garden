@@ -12,15 +12,15 @@
 // The ?v= query is cache busting for GitHub Pages (max-age=600): it keeps a
 // cached module from pairing with a newer index.html. Bump every '?v=' in the
 // repo together (grep for it) whenever index.html or anything in src/ changes.
-import { solarPosition } from './solar.js?v=5';
+import { solarPosition } from './solar.js?v=6';
 import {
   sunHoursForDay,
   sunPathForDay,
   sunIntervalsForDay,
   monthlyReport,
   categorize,
-} from './sunhours.js?v=5';
-import { fenceProfile, treeProfile, paintProfile } from './obstacles.js?v=5';
+} from './sunhours.js?v=6';
+import { fenceProfile, treeProfile, paintProfile } from './obstacles.js?v=6';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const AZ_STEPS = 360; // skyline resolution: 1° bins
@@ -54,15 +54,18 @@ const state = {
 
 const activeSpot = () => state.spots[state.active];
 
-// Keys in the saved JSON that other pages own (e.g. arChecks written by
-// ar.js) — persist() must carry them through, not drop them.
-let extraSaved = {};
+function readSaved() {
+  try {
+    return JSON.parse(localStorage.getItem('sun-garden') || 'null') || {};
+  } catch {
+    return {};
+  }
+}
 
 function loadSaved() {
   try {
     const saved = JSON.parse(localStorage.getItem('sun-garden') || 'null');
     if (!saved) return;
-    if (typeof saved === 'object') extraSaved = saved;
     if (Number.isFinite(saved.lat)) state.lat = saved.lat;
     if (Number.isFinite(saved.lon)) state.lon = saved.lon;
     if (Array.isArray(saved.spots) && saved.spots.length) {
@@ -81,10 +84,14 @@ function loadSaved() {
 }
 
 function persist() {
+  // Merge over the JSON as stored *right now* — not a load-time snapshot.
+  // Other pages write their own keys (arChecks from ar.js) between our
+  // writes, and iOS restores this page from the back-forward cache without
+  // reloading it, so a snapshot would silently delete their data.
   localStorage.setItem(
     'sun-garden',
     JSON.stringify({
-      ...extraSaved,
+      ...readSaved(),
       lat: state.lat,
       lon: state.lon,
       active: state.active,
@@ -573,7 +580,10 @@ function renderComparison() {
 // -------- spot checks logged by the AR view (ar.js writes arChecks)
 
 function renderArChecks() {
-  const checks = Array.isArray(extraSaved.arChecks) ? extraSaved.arChecks : [];
+  // Always read fresh: ar.js appends to arChecks while this page may sit in
+  // the back-forward cache.
+  const saved = readSaved();
+  const checks = Array.isArray(saved.arChecks) ? saved.arChecks : [];
   $('arChecksCard').style.display = checks.length ? '' : 'none';
   if (!checks.length) return;
   $('arChecksTable').querySelector('tbody').innerHTML = checks
@@ -589,12 +599,22 @@ function renderArChecks() {
     .join('');
   $('arChecksTable').querySelectorAll('[data-delcheck]').forEach((el) =>
     el.addEventListener('click', () => {
-      checks.splice(Number(el.dataset.delcheck), 1);
-      persist();
+      // read-modify-write on arChecks itself; persist() doesn't own this key
+      const fresh = readSaved();
+      if (Array.isArray(fresh.arChecks)) {
+        fresh.arChecks.splice(Number(el.dataset.delcheck), 1);
+        localStorage.setItem('sun-garden', JSON.stringify(fresh));
+      }
       renderArChecks();
     }),
   );
 }
+
+// Returning from ar.html: iOS restores this page from the back-forward cache
+// without reloading, so re-render anything derived from localStorage.
+window.addEventListener('pageshow', (ev) => {
+  if (ev.persisted) renderArChecks();
+});
 
 function recompute() {
   const { y, m, d } = today();

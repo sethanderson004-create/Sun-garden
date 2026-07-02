@@ -15,8 +15,8 @@
  *   frame; we project world points with d = Rᵀ·v and a pinhole model.
  */
 
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=5';
-import { sunPathForDay, categorize } from './sunhours.js?v=5';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=6';
+import { sunPathForDay, categorize } from './sunhours.js?v=6';
 
 const $ = (id) => document.getElementById(id);
 const cssVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
@@ -492,7 +492,7 @@ function renderChips() {
 
   const today = days.find((d) => d.today);
   const res = today && sweepResults(today);
-  $('saveBtn').disabled = !(res && res.coverage >= 0.5);
+  $('saveBtn').disabled = savedThisSweep || !(res && res.coverage >= 0.5);
   if (res && res.coverage >= 0.85) {
     const cat = categorize(res.hours);
     $('advice').style.display = '';
@@ -536,6 +536,7 @@ $('alignBtn').addEventListener('click', () => {
 $('sweepBtn').addEventListener('click', () => {
   state.sweeping = !state.sweeping;
   if (state.sweeping) {
+    savedThisSweep = false;
     for (const day of days) {
       day.status.fill(0);
       day.bestDist.fill(Infinity);
@@ -554,20 +555,26 @@ $('sweepBtn').addEventListener('click', () => {
 
 // -------- save a spot check (results + where you stood)
 
+let savedThisSweep = false; // one save per sweep — a second tap would duplicate
+
 function persistCheck(entry) {
   try {
     const saved = JSON.parse(localStorage.getItem('sun-garden') || 'null') || {};
     saved.arChecks = [...(Array.isArray(saved.arChecks) ? saved.arChecks : []), entry].slice(-50);
     localStorage.setItem('sun-garden', JSON.stringify(saved));
-    toast(`Saved “${entry.name}” ✓ — it's listed on the tracer page.`);
+    toast(`Saved “${entry.name}” ✓ — it's listed on the tracer page.`, 3600);
+    savedThisSweep = true;
   } catch {
     toast('Could not save — browser storage is unavailable.');
+    $('saveBtn').disabled = false;
   }
 }
 
 $('saveBtn').addEventListener('click', () => {
   const name = (prompt('Name this spot check (e.g. "Blueberry bed"):', 'My spot') || '').trim();
   if (!name) return;
+  $('saveBtn').disabled = true;
+  toast('Logging the spot… getting a GPS fix for the standpoint.');
   const entry = {
     name,
     when: new Date().toISOString(),

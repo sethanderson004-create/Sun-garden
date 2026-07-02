@@ -9,7 +9,7 @@
  * horizon is `() => 0`.
  */
 
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=5'; // ?v= must match app.js — see cache-busting note there
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=6'; // ?v= must match app.js — see cache-busting note there
 
 export const OPEN_HORIZON = () => 0;
 
