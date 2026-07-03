@@ -66,8 +66,15 @@ The codebase is split into a pure computational engine (tested) and a UI layer
   hacks). The fast path must stay *bit-for-bit equal* to `sunHoursForDay` —
   an equality test enforces it; the table pre-splits each sample azimuth into
   bin index + fraction using exactly `layerAt`'s arithmetic to keep that true.
-- **`src/app.js` + `index.html`** — all state, canvas rendering, and DOM.
-  Imports the engine; the engine never imports from here.
+- **`src/blend.js`** — measured-spot blending: AR check sweeps → per-month
+  residuals (measured − model at the pin, circularly interpolated between
+  the sweep's anchor months) → IDW field added to every map cell, clamped
+  to [0, daylight]. Model gives seasonal shape, measurements pin levels;
+  with no obstacles it reduces to pure interpolation of measurements.
+- **`src/app.js` + `trace.html`** — the original panorama skyline tracer
+  (all its state, canvas, DOM). Now the "advanced" page, linked from the
+  home footer; index.html was renamed to trace.html in the 2026-07-03
+  redesign and map.html is a redirect stub to the new home.
 - **`src/ar.js` + `ar.html`** — the AR sun view (beta): camera passthrough +
   device-orientation compass/gyro, sun arcs projected via a pinhole model,
   one-tap "align to sun" compass correction, and a sweep spot-check that
@@ -168,6 +175,20 @@ engine features, test physical invariants (e.g. "blocking never adds sun",
 "intervals sum to the integration") rather than exact decimals.
 
 ## Status & near-term roadmap (as of 2026-07-03)
+
+**Product refocus (owner-directed, 2026-07-03): measurements are the
+product.** The home page (`index.html`, logic in `src/map.js`) is now the
+region-focused sun map: walk the yard with the AR spot check, each 💾 saved
+spot calibrates the whole map through blend.js (IDW residual field over the
+model), and everything is answered in plant language (`PLANTS` table; tap →
+"Part sun through the season — happy here: …"; plant chips filter the map to
+ground that qualifies **across the growing season**, hemisphere-aware).
+Every measured spot gets a data card: 12-month bar chart (SVG, category
+ramp, measured days as ringed markers with direct labels, 6h threshold
+line), season verdict, sketch-agreement flag, delete. Drawing tools are
+tucked behind ✏️ Edit yard; the pano tracer moved to trace.html (footer
+link). Playwright: home-check covers calibration-at-pins, cards, filter,
+edit gating, delete ownership; all prior suites updated to index.html.
 
 **Garden map (top-down shadow simulator, PLAN.md Phase 2) built through M3**
 on branch `claude/sungarden-full-map-plan-pw2xlm` (PR #10): M1 scene engine +

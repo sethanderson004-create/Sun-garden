@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Sun-Garden — map the sun in your garden</title>
+<title>Sun-Garden — know what to plant where</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='5' fill='%23eda100'/%3E%3C/svg%3E" />
 <style>
   :root {
@@ -20,7 +20,6 @@
     --cat-part-shade: #5598e7;
     --cat-part-sun: #2a78d6;
     --cat-full-sun: #184f95;
-    /* sun-path diagram accents (categorical slots + labels) */
     --path-june: #eda100;
     --path-equinox: #1baf7a;
     --path-december: #2a78d6;
@@ -64,9 +63,10 @@
     color: var(--text-primary);
     font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   }
-  main { max-width: 1120px; margin: 0 auto; padding: 20px 16px 56px; }
+  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 56px; }
   h1 { font-size: 22px; margin: 0 0 2px; }
-  .tagline { color: var(--text-secondary); margin: 0 0 18px; }
+  h2 { font-size: 15px; margin: 0 0 8px; }
+  .tagline { color: var(--text-secondary); margin: 0 0 14px; }
   .card {
     background: var(--surface-1);
     border: 1px solid var(--border);
@@ -74,248 +74,159 @@
     padding: 14px 16px;
     margin-bottom: 16px;
   }
-  .card h2 { font-size: 15px; margin: 0 0 8px; }
-  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
-  .field { display: flex; flex-direction: column; gap: 3px; }
-  .field label { font-size: 12px; color: var(--text-muted); }
-  input[type="number"], select {
-    width: 110px; padding: 6px 8px; border-radius: 6px;
-    border: 1px solid var(--baseline);
-    background: var(--surface-1); color: var(--text-primary); font: inherit;
-  }
-  select { width: auto; }
+  .hint { font-size: 13px; color: var(--text-muted); margin: 6px 0 0; }
   button {
     padding: 7px 12px; border-radius: 6px; border: 1px solid var(--baseline);
     background: var(--surface-1); color: var(--text-primary);
     font: inherit; cursor: pointer;
   }
   button:hover { border-color: var(--accent); color: var(--accent); }
+  a.btn {
+    display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+    padding: 7px 12px; border-radius: 6px; font-weight: 600;
+    background: var(--accent); border: 1px solid var(--accent); color: #fff;
+  }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.primary:hover { filter: brightness(1.08); color: #fff; }
-  .hint { font-size: 13px; color: var(--text-muted); margin: 6px 0 0; }
-  canvas#pano {
+  button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: 0.45; pointer-events: none; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center; }
+  .toolbar .spacer { flex: 1; }
+  #editTools { display: none; }
+  body.editing #editTools { display: flex; }
+  canvas#map {
     width: 100%; height: auto; display: block; border-radius: 6px;
     touch-action: none; cursor: crosshair; border: 1px solid var(--border);
+    background: var(--page);
   }
-  #readout { font-size: 13px; color: var(--text-secondary); min-height: 1.4em; margin-top: 6px; }
-  .results-grid { display: grid; grid-template-columns: 260px 1fr; gap: 16px; align-items: start; }
-  @media (max-width: 760px) { .results-grid { grid-template-columns: 1fr; } }
-  .hero-value { font-size: 40px; font-weight: 650; line-height: 1.05; }
-  .hero-sub { color: var(--text-secondary); font-size: 13px; margin-top: 2px; }
-  .chip {
-    display: inline-flex; align-items: center; gap: 6px; margin-top: 10px;
-    font-size: 13px; font-weight: 600; color: var(--text-primary);
-  }
-  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
-  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 4px 0 10px; font-size: 12.5px; color: var(--text-secondary); }
+  #readout { font-size: 13.5px; color: var(--text-secondary); min-height: 1.4em; margin-top: 8px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0 0; font-size: 12.5px; color: var(--text-secondary); }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
-  #tooltip {
-    position: fixed; pointer-events: none; display: none; z-index: 10;
-    background: var(--surface-1); border: 1px solid var(--border); border-radius: 6px;
-    padding: 6px 9px; font-size: 12.5px; color: var(--text-primary);
-    box-shadow: 0 2px 10px rgba(0,0,0,0.18); white-space: nowrap;
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+  .chips .lbl { font-size: 12.5px; color: var(--text-muted); }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    border: 1px solid var(--baseline); border-radius: 999px;
+    padding: 4px 11px; font-size: 13px; background: var(--surface-1); color: var(--text-primary);
   }
-  #tooltip .cat { color: var(--text-secondary); }
-  details { margin-top: 10px; }
-  summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
-  table { border-collapse: collapse; margin-top: 8px; font-size: 13.5px; }
-  th, td { text-align: left; padding: 4px 14px 4px 0; border-bottom: 1px solid var(--gridline); }
-  td.num { font-variant-numeric: tabular-nums; }
-  th { color: var(--text-muted); font-weight: 500; font-size: 12px; }
-  svg text { font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; }
-  .brushes { display: inline-flex; gap: 14px; align-items: center; padding: 6px 0; }
-  .brushes label { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; cursor: pointer; }
-  .hint-inline { color: var(--text-muted); font-size: 12px; }
-  .timeline-head { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
-  .timeline-head h3 { font-size: 14px; margin: 0; }
+  .chip:hover { border-color: var(--accent); }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .sliders { display: flex; flex-direction: column; gap: 10px; }
+  .sliderRow { display: flex; align-items: center; gap: 10px; }
+  .sliderRow label { font-size: 13px; color: var(--text-secondary); min-width: 130px; }
+  .sliderRow output { font-size: 13px; font-weight: 600; min-width: 88px; font-variant-numeric: tabular-nums; }
+  input[type="range"] { flex: 1; accent-color: var(--accent); }
+  input[type="number"], select {
+    padding: 6px 8px; border-radius: 6px; border: 1px solid var(--baseline);
+    background: var(--surface-1); color: var(--text-primary); font: inherit; width: 90px;
+  }
+  select { width: auto; }
+  #editPanel { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  #editPanel .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field label { font-size: 12px; color: var(--text-muted); }
+  .check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding-bottom: 8px; }
+  button.danger:hover { border-color: #c0392b; color: #c0392b; }
+
+  /* measured-spot cards */
+  .spot {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px; margin-top: 10px;
+  }
+  .spot .head { display: flex; align-items: baseline; gap: 10px; }
+  .spot .head strong { font-size: 14.5px; }
+  .spot .head .when { font-size: 12px; color: var(--text-muted); }
+  .spot .head .del { margin-left: auto; border: none; background: none; color: var(--text-muted); padding: 2px 6px; font-size: 15px; }
+  .spot .head .del:hover { color: #c0392b; }
+  .spot .cat { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin: 2px 0 6px; }
+  .spot svg { display: block; width: 100%; height: auto; margin-top: 4px; }
+  .spot svg text { font: 10px system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .spot .plants { font-size: 13px; color: var(--text-secondary); margin-top: 6px; }
+  footer { margin-top: 22px; font-size: 12.5px; color: var(--text-muted); }
+  footer a { color: var(--text-muted); }
 </style>
 </head>
 <body>
 <main>
-  <h1>Sun-Garden</h1>
-  <p class="tagline">Trace what blocks your sky — get direct-sun hours for every month of the year.</p>
+  <h1>☀ Sun-Garden</h1>
+  <p class="tagline">Walk your yard, measure the light, know what grows where.</p>
 
   <div class="card">
-    <h2>1 · Where is the garden?</h2>
-    <div class="controls">
-      <div class="field"><label for="lat">Latitude</label>
-        <input id="lat" type="number" step="0.0001" min="-89.9" max="89.9" value="47.6062" /></div>
-      <div class="field"><label for="lon">Longitude</label>
-        <input id="lon" type="number" step="0.0001" min="-180" max="180" value="-122.3321" /></div>
-      <button id="geo" class="primary">Use my location</button>
-      <div class="field"><label for="preset">Or try a preset</label>
-        <select id="preset">
-          <option value="">—</option>
-          <option value="47.6062,-122.3321">Seattle</option>
-          <option value="39.7392,-104.9903">Denver</option>
-          <option value="51.5072,-0.1276">London</option>
-          <option value="-33.8688,151.2093">Sydney</option>
-          <option value="-1.2921,36.8219">Nairobi</option>
-        </select></div>
+    <div class="toolbar">
+      <a class="btn" href="./ar.html">📱 Measure a spot</a>
+      <button id="editBtn" title="Sketch or fix trees, buildings, and fences">✏️ Edit yard</button>
+      <span class="spacer"></span>
+      <button id="zoomInBtn" title="Zoom in">➕</button>
+      <button id="zoomOutBtn" title="Zoom out">➖</button>
+      <button id="satBtn" title="Correctly-scaled satellite imagery under the map (loads tiles from Esri)">🌍</button>
     </div>
-  </div>
-
-  <div class="card">
-    <h2>📱 New: AR sun view <span style="font-weight:400;color:var(--text-muted)">(beta, phone)</span></h2>
-    <p class="hint" style="margin:0 0 10px">
-      Skip the tracing: stand at the spot, point your phone at the sky, and watch the year's sun
-      paths drawn over your actual trees and fences. Sweep along the arcs and it counts your
-      direct-sun hours on the spot.
-    </p>
-    <a href="ar.html"><button class="primary" type="button">Open the AR sun view</button></a>
-  </div>
-
-  <div class="card">
-    <h2>🗺 New: Garden sun map <span style="font-weight:400;color:var(--text-muted)">(beta)</span></h2>
-    <p class="hint" style="margin:0 0 10px">
-      Sketch your yard from above — house, trees, fences — and get a sun-hours heatmap of the
-      <strong>whole garden</strong> with a month slider, plus a shadow movie of any day. Deciduous
-      trees go bare in winter here too.
-    </p>
-    <a href="map.html"><button class="primary" type="button">Open the garden map</button></a>
-  </div>
-
-  <div class="card">
-    <h2>2 · Trace the skyline at each spot</h2>
-    <p class="hint" style="margin:0 0 10px">
-      Add a spot for each place you garden — a bed by the fence, the veggie patch, the porch.
-      <strong>Each spot gets its own skyline</strong>, because the same tree fills a different amount of sky
-      from each viewpoint. Stand there, look around, and <strong>drag on the panorama</strong> to draw what
-      blocks the sky; drag to the bottom to erase. Use the <strong>Deciduous tree</strong> brush for trees that
-      drop their leaves — they only block sun during the leaf-on months (drawn in green).
-      Optionally load a panorama photo as a tracing guide — see
-      <strong>“How to take the panorama photo”</strong> below, then use the alignment fields to
-      position it on the compass.
-    </p>
-    <div class="controls" style="margin-bottom:10px">
-      <div class="field"><label for="spotSel">Spot</label><select id="spotSel"></select></div>
-      <button id="addSpot">+ Add spot</button>
-      <button id="renameSpot">Rename</button>
-      <button id="delSpot">Delete</button>
+    <div class="toolbar" id="editTools">
+      <button class="tool" data-tool="select" title="Tap to inspect or select; drag to move">☝ Select</button>
+      <button class="tool" data-tool="building" title="Drag a rectangle over the house/garage/shed">🏠 Building</button>
+      <button class="tool" data-tool="tree" title="Tap the trunk, drag out the crown">🌳 Tree</button>
+      <button class="tool" data-tool="fence" title="Click corner to corner; double-click to finish">🚧 Fence</button>
+      <button class="tool" data-tool="scale" title="Drag a line over something you know the length of">📏 Scale</button>
+      <span class="spacer"></span>
+      <button id="photoBtn" title="Trace over a screenshot of the satellite view">🛰 Photo</button>
+      <input type="file" id="photoFile" accept="image/*" style="display:none" />
+      <button id="clearBtn" class="danger">✕ Clear</button>
     </div>
-    <div class="controls" style="margin-bottom:10px">
-      <span class="brushes" role="radiogroup" aria-label="Drawing brush">
-        <label><input type="radio" name="brush" value="solid" checked /> Solid <span class="hint-inline">(house, fence, evergreen)</span></label>
-        <label><input type="radio" name="brush" value="leafy" /> Deciduous tree <span class="hint-inline">(bare in winter)</span></label>
-      </span>
-      <label><input id="photo" type="file" accept="image/*" hidden /><button id="photoBtn">Load panorama photo…</button></label>
-      <button id="undo" disabled>Undo</button>
-      <button id="reset">Reset skyline</button>
+    <canvas id="map"></canvas>
+    <div id="readout">Your yard, colored by direct sun. Tap anywhere for that spot’s light; drag to pan, pinch or ➕/➖ to zoom.</div>
+    <div class="chips" id="plantChips">
+      <span class="lbl">Where can I grow…</span>
+      <button class="chip" data-cat="Full sun">🍅 sun-lovers</button>
+      <button class="chip" data-cat="Part sun">🥕 part sun</button>
+      <button class="chip" data-cat="Part shade">🥬 part shade</button>
+      <button class="chip" data-cat="Full shade">🌿 shade</button>
     </div>
-    <details class="measure" style="margin-bottom:10px">
-      <summary>📷 How to take the panorama photo</summary>
-      <ol class="hint" style="margin:8px 0; padding-left: 20px">
-        <li><strong>Take it with your camera's Pano mode first</strong> — this button can't capture a
-          panorama itself; it loads one you've already taken. In the picker, choose
-          <strong>Photo Library / Files</strong>, not "Take photo" (a single snapshot only covers ~70°).</li>
-        <li>Stand exactly at the spot — and if the plant is low (a hedge, a bed), hold the phone at
-          the <strong>plant's height</strong>, since a nearby fence looks completely different from
-          down there.</li>
-        <li>Before sweeping, note the compass direction you're facing at the start (a compass app
-          helps, or use the sun's position as a reference).</li>
-        <li>Hold the phone level, keep the horizon across the middle of the frame, and sweep slowly
-          in one smooth pass. Cover the whole arc the sun uses: in the northern hemisphere sweep
-          from northeast through south to northwest. A typical phone pano spans 180–240°.</li>
-        <li>Load it here — <strong>the canvas zooms to the photo</strong> so it fills the box for
-          tracing ("Show full sky" switches back). Then set the alignment fields that appear: the
-          direction the <strong>left edge</strong> faces, how many degrees the sweep covered, and the
-          elevation of the top and bottom edges (a level pano centered on the horizon is roughly
-          −25° to +25°). Nudge until landmarks sit over the right compass letters, then trace —
-          and Undo takes back any stroke.</li>
-      </ol>
-    </details>
-    <div class="controls" id="photoAlign" style="display:none; margin-bottom:10px">
-      <div class="field"><label for="photoAzStart">Left edge faces (° az)</label>
-        <input id="photoAzStart" type="number" step="5" value="0" title="0 = N, 90 = E, 180 = S, 270 = W" /></div>
-      <div class="field"><label for="photoSpan">Photo covers (°)</label>
-        <input id="photoSpan" type="number" min="30" max="360" step="5" value="360" /></div>
-      <div class="field"><label for="photoTopEl">Top edge (° elev)</label>
-        <input id="photoTopEl" type="number" min="-80" max="90" step="5" value="90" /></div>
-      <div class="field"><label for="photoBotEl">Bottom edge (° elev)</label>
-        <input id="photoBotEl" type="number" min="-90" max="80" step="5" value="0" /></div>
-      <button id="viewToggle">Show full sky</button>
-      <button id="photoClear">Remove photo</button>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--cat-full-sun)"></span>Full sun ≥6 h</span>
+      <span><span class="swatch" style="background:var(--cat-part-sun)"></span>Part sun 4–6 h</span>
+      <span><span class="swatch" style="background:var(--cat-part-shade)"></span>Part shade 2–4 h</span>
+      <span><span class="swatch" style="background:var(--cat-full-shade)"></span>Full shade &lt;2 h</span>
     </div>
-    <details class="measure" style="margin-bottom:10px">
-      <summary>Too close to trace? Enter measurements instead</summary>
-      <p class="hint" style="margin:8px 0">
-        For an obstruction right next to the plant — a hedge 2–3 ft from a fence, say — a tape measure
-        beats a panorama. Crucially, enter the <strong>height of the plant</strong>, not your eye height:
-        a 6 ft fence seen from a 2 ft hedge 2.5 ft away blocks up to 58° of sky; from standing eye height
-        it looks like a harmless 8°. Use any one unit (ft or m) for all lengths. The shape is painted onto
-        this spot's skyline with the selected brush, so a hedge-side maple can go on as a deciduous tree.
-      </p>
-      <div class="controls">
-        <div class="field"><label for="obType">Obstacle</label>
-          <select id="obType">
-            <option value="fence">Fence / wall (long, straight)</option>
-            <option value="tree">Tree / shrub</option>
-          </select></div>
-        <div class="field"><label for="obAz">Direction to it (° az)</label>
-          <input id="obAz" type="number" min="0" max="359" step="1" value="180" title="0 = N, 90 = E, 180 = S, 270 = W" /></div>
-        <div class="field"><label for="obDist">Distance</label>
-          <input id="obDist" type="number" min="0.1" step="0.1" value="2.5" /></div>
-        <div class="field"><label for="obHeight">Its height</label>
-          <input id="obHeight" type="number" min="0.1" step="0.1" value="6" /></div>
-        <div class="field" id="obWidthField" style="display:none"><label for="obWidth">Crown width</label>
-          <input id="obWidth" type="number" min="0.1" step="0.1" value="10" /></div>
-        <div class="field"><label for="obPlantH">Your plant's height</label>
-          <input id="obPlantH" type="number" min="0" step="0.1" value="2" /></div>
-        <button id="obApply" class="primary">Paint onto skyline</button>
-      </div>
-    </details>
-    <canvas id="pano" width="1080" height="420" aria-label="Skyline panorama: azimuth 0–360 degrees horizontal, elevation 0–90 degrees vertical"></canvas>
-    <div id="readout">&nbsp;</div>
-  </div>
 
-  <div class="card">
-    <h2>3 · Your sun report</h2>
-    <div class="results-grid">
-      <div>
-        <div class="hero-value" id="heroHours">–</div>
-        <div class="hero-sub" id="heroSub">direct sun today at this spot</div>
-        <div class="chip" id="heroChip"></div>
-        <p class="hint">Plant labels: full sun 6 h+, part sun 4–6 h, part shade 2–4 h, full shade &lt;2 h of direct sun.</p>
-      </div>
-      <div>
-        <div class="legend" id="legend"></div>
-        <div id="chart"></div>
-        <details>
-          <summary>Show as table</summary>
-          <table id="dataTable"><thead><tr><th>Month (21st)</th><th>Direct sun</th><th>Category</th></tr></thead><tbody></tbody></table>
-        </details>
-        <div class="timeline-head">
-          <h3>Sun through the day</h3>
-          <select id="tlMonth" aria-label="Month for the daily timeline"></select>
-        </div>
-        <div class="legend">
-          <span><span class="swatch" style="background:var(--path-june)"></span>Direct sun</span>
-          <span><span class="swatch" style="background:var(--skyline-edge)"></span>Blocked by skyline</span>
-          <span><span class="swatch" style="background:var(--gridline)"></span>Sun below horizon</span>
-        </div>
-        <div id="timeline"></div>
-        <p class="hint" id="tlSummary"></p>
+    <div id="editPanel">
+      <div class="row">
+        <strong id="editTitle" style="min-width:90px"></strong>
+        <div class="field"><label>Preset</label><select id="editPreset"></select></div>
+        <div class="field"><label>Height (m)</label><input type="number" id="editHeight" min="0.2" step="0.1" /></div>
+        <div class="field" id="crownField"><label>Crown width (m)</label><input type="number" id="editCrown" min="0.5" step="0.5" /></div>
+        <label class="check" id="leafField"><input type="checkbox" id="editDeciduous" /> 🍂 loses leaves in winter</label>
+        <button id="deleteBtn" class="danger">🗑 Delete</button>
       </div>
     </div>
   </div>
 
-  <div class="card" id="compareCard" style="display:none">
-    <h2>4 · Compare your spots</h2>
-    <table id="compareTable"><thead><tr><th>Spot</th><th>Today</th><th>Jun 21</th><th>Dec 21</th><th>Category today</th></tr></thead><tbody></tbody></table>
+  <div class="card">
+    <div class="sliders">
+      <div class="sliderRow">
+        <label for="monthSlider">Month</label>
+        <input type="range" id="monthSlider" min="1" max="12" step="1" />
+        <output id="monthOut"></output>
+      </div>
+      <div class="sliderRow">
+        <label for="timeSlider"><input type="checkbox" id="movieToggle" /> Shadow movie</label>
+        <input type="range" id="timeSlider" min="-420" max="420" step="10" value="0" disabled />
+        <output id="timeOut">12:00 solar</output>
+      </div>
+    </div>
   </div>
 
-  <div class="card" id="arChecksCard" style="display:none">
-    <h2>📍 Saved AR spot checks</h2>
-    <p class="hint" style="margin:0 0 6px">
-      Logged from the AR sun view, standing at the spot. The map link opens the exact standpoint,
-      so you can find the same place again.
-    </p>
-    <table id="arChecksTable"><thead><tr><th>Spot</th><th>When</th><th>Direct sun (measured)</th><th>Where</th><th></th></tr></thead><tbody></tbody></table>
+  <div class="card" id="spotsCard">
+    <h2>📍 Your measured spots</h2>
+    <p class="hint" id="spotsHint">The map firms up around real measurements. Tap <b>📱 Measure a spot</b>,
+      stand where you garden, sweep the phone along the sun arcs, and 💾 save — each saved spot appears
+      here with its full year of light, and the map re-shades itself around what you measured.</p>
+    <div id="spotList"></div>
   </div>
 
-  <p class="hint">Phase 0 prototype — the sun paths are exact astronomy for your location; the skyline is whatever you trace. See PLAN.md for the full app roadmap.</p>
+  <footer>
+    Estimates are clear-sky direct sun on the 21st of each month, from your measurements
+    and yard sketch. Advanced: <a href="./trace.html">panorama skyline tracer</a>.
+  </footer>
 </main>
-<div id="tooltip"></div>
-<script type="module" src="src/app.js?v=15"></script>
+<script type="module" src="src/map.js?v=16"></script>
 </body>
 </html>
