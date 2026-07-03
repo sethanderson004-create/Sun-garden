@@ -40,6 +40,13 @@ The codebase is split into a pure computational engine (tested) and a UI layer
 - **`src/obstacles.js`** — converts measured obstructions (fence height +
   distance, tree crown) into skyline profiles; exists because near obstacles
   a tape measure beats tracing.
+- **`src/survey.js`** — AR yard-survey math (pure trig, no sensors):
+  clinometer sightings → scene obstacles. `sightGroundPoint` (distance from
+  the depression angle to an object's base, given eye height),
+  `sightHeight`, `spanWidth` (crown from two edge azimuths), `gpsToScene`,
+  and `mergeSighting` (repeat sightings running-average, ~1/√n). Assumes
+  level-ish ground; accuracy scales with proximity, so the UI pushes users
+  to walk close and re-sight.
 - **`src/scene.js`** — garden-map scene engine (Phase 2 M1): a top-down
   sketch in world coordinates (units of meters, x east / y north; obstacles:
   `building` polygon footprint + height, `fence` polyline + height, `tree`
@@ -74,9 +81,20 @@ The codebase is split into a pure computational engine (tested) and a UI layer
   then may steer only slowly *while the device is still* (rate-gated at
   15°/s) — raw compass headings wander tens of degrees during a pan — and
   "Align to sun" freezes it entirely (gyro + sun fix from then on).
+  Also hosts the **📐 yard survey** (math in survey.js): aim at an object's
+  base/top/crown edges with the crosshair, ⊕ Mark each — position, height,
+  and width land directly in the garden map's `scene.obstacles` (fences:
+  base of each post + a height prompt). "📍 I moved" refixes the GPS
+  standpoint (walk close to each object — that's where the angles are
+  sharp); "⟳ Again" re-sights the last tree and `mergeSighting` averages.
+  True azimuth for sightings is `centerDirection().az − state.azOffset`
+  (undoing align-to-sun; manual look has no offset).
   Reads/writes the same `"sun-garden"` localStorage key as app.js (lat/lon
   shared; the 💾 Save button appends sweeps to `arChecks` with a fresh GPS
-  standpoint, rendered/deleted as a card by app.js). Has a drag-to-look
+  standpoint, rendered/deleted as a card by app.js). Survey owns the
+  `survey` key (eyeHeight) and appends/merges into `scene.obstacles` via
+  read-modify-write; the map page reloads scene state on `pageshow`, which
+  is what keeps the two writers from clobbering each other. Has a drag-to-look
   fallback when no orientation sensor exists (desktop), and a
   `window.__arDebug` hook used by Playwright checks.
 

@@ -15,8 +15,9 @@
  *   frame; we project world points with d = Rᵀ·v and a pinhole model.
  */
 
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=13';
-import { sunPathForDay, categorize } from './sunhours.js?v=13';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=14';
+import { sunPathForDay, categorize } from './sunhours.js?v=14';
+import { sightGroundPoint, sightHeight, spanWidth, gpsToScene, mergeSighting } from './survey.js?v=14';
 
 const $ = (id) => document.getElementById(id);
 const cssVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
@@ -395,6 +396,7 @@ function frame() {
   drawHorizonAndCrosshair();
   for (let i = days.length - 1; i >= 0; i--) drawArc(days[i]);
   drawSunNow();
+  if (survey.on) drawSurveyMarks();
   if (state.sweeping) sampleSweep();
 
   const { az, el } = centerDirection();
@@ -602,6 +604,263 @@ $('saveBtn').addEventListener('click', () => {
   }
 });
 
+// ---------------------------------------------------------------- yard survey
+//
+// Measure the yard by aiming, clinometer-style (math in survey.js): mark the
+// base of a thing to get its distance and position, its top for height, the
+// crown edges for width — everything lands directly in the garden map's
+// scene. Accuracy is best close up, so the flow encourages walking to each
+// object ("📍 I moved" refixes the GPS standpoint) and "⟳ Again" re-sights
+// the last tree so repeat measurements average out.
+
+const survey = {
+  on: false,
+  kind: 'tree', // 'tree' | 'fence'
+  step: 0,
+  taps: [], // collected sightings for the current object
+  marks: [], // screen markers {az, el} in compass-model frame
+  eyeHeight: 1.6,
+  eyeHeightAsked: false,
+  standpoint: { x: 0, y: 0 }, // scene meters relative to the garden origin
+  gotFix: false,
+  lastTreeId: null, // "⟳ Again" target
+  resight: null, // id being re-sighted, else null
+};
+
+function readSaved() {
+  try {
+    return JSON.parse(localStorage.getItem('sun-garden') || 'null') || {};
+  } catch {
+    return {};
+  }
+}
+
+{
+  const s = readSaved();
+  if (Number.isFinite(s.survey?.eyeHeight)) {
+    survey.eyeHeight = s.survey.eyeHeight;
+    survey.eyeHeightAsked = true;
+  }
+}
+
+const TREE_STEPS = [
+  '🌳 1/4 — aim the crosshair where the <b>trunk meets the ground</b>, tap ⊕ Mark',
+  '🌳 2/4 — aim at the very <b>top</b> of the tree',
+  '🌳 3/4 — aim at the <b>left edge</b> of the crown',
+  '🌳 4/4 — aim at the <b>right edge</b> — Mark saves it',
+];
+
+/** True compass azimuth of the crosshair (undo the align-to-sun offset). */
+function surveyDirection() {
+  const { az, el } = centerDirection();
+  return { az: ((az - (state.manualLook ? 0 : state.azOffset)) % 360 + 360) % 360, el };
+}
+
+function surveyPromptText() {
+  if (survey.kind === 'tree') return TREE_STEPS[survey.step];
+  return `🚧 aim at the <b>base of each corner post</b> and ⊕ Mark it (${survey.taps.length} so far) — ✓ Save when done`;
+}
+
+function refreshSurveyUi() {
+  $('surveyPrompt').innerHTML = surveyPromptText();
+  $('surveyKindTree').classList.toggle('active', survey.kind === 'tree');
+  $('surveyKindFence').classList.toggle('active', survey.kind === 'fence');
+  $('surveyAgain').disabled = !survey.lastTreeId || survey.kind !== 'tree';
+}
+
+function startObject(resightId = null) {
+  survey.step = 0;
+  survey.taps = [];
+  survey.marks = [];
+  survey.resight = resightId;
+  refreshSurveyUi();
+}
+
+function surveyFix(announce) {
+  if (!navigator.geolocation) {
+    if (announce) toast('No GPS here — measurements are placed relative to the garden origin; drag them on the map later.', 4200);
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      survey.standpoint = gpsToScene(state.lat, state.lon, pos.coords.latitude, pos.coords.longitude);
+      survey.gotFix = true;
+      if (announce) toast('Standpoint fixed 📍 — walk close to what you measure, and tap 📍 I moved after moving.', 4200);
+    },
+    () => {
+      if (announce) toast('GPS fix failed — measuring relative to the garden origin; drag results on the map later.', 4200);
+    },
+    { timeout: 6000, enableHighAccuracy: true },
+  );
+}
+
+/** Append or (for a re-sight) merge one obstacle into the shared scene. */
+function persistSurveyObstacle(ob, resightId) {
+  const saved = readSaved();
+  const scene = saved.scene && typeof saved.scene === 'object' ? saved.scene : {};
+  scene.obstacles = Array.isArray(scene.obstacles) ? scene.obstacles : [];
+  let merged = ob;
+  if (resightId) {
+    const i = scene.obstacles.findIndex((o) => o.id === resightId);
+    if (i >= 0) {
+      merged = mergeSighting(scene.obstacles[i], ob);
+      scene.obstacles[i] = merged;
+    } else {
+      scene.obstacles.push(ob); // the map page deleted it meanwhile
+    }
+  } else {
+    scene.obstacles.push(ob);
+  }
+  saved.scene = scene;
+  localStorage.setItem('sun-garden', JSON.stringify(saved));
+  return merged;
+}
+
+function finishTree() {
+  const [base, top, edgeA, edgeB] = survey.taps;
+  const crownWidth = Math.max(1, spanWidth(base.distance, edgeA.az, edgeB.az));
+  const deciduous = confirm('Does this tree drop its leaves in winter?\n\nOK = yes (deciduous) · Cancel = evergreen');
+  const measurement = {
+    type: 'tree',
+    id: `svy-${Date.now()}`,
+    x: base.x,
+    y: base.y,
+    height: top.height,
+    crownWidth,
+    deciduous,
+    sightings: 1,
+  };
+  const saved = persistSurveyObstacle(measurement, survey.resight);
+  if (!survey.resight) survey.lastTreeId = measurement.id;
+  toast(
+    `🌳 ${saved.height.toFixed(1)} m tall, ${saved.crownWidth.toFixed(1)} m crown, ${base.distance.toFixed(1)} m away` +
+      (saved.sightings > 1 ? ` — averaged over ${saved.sightings} sightings ✓` : ' — saved to the garden map ✓'),
+    4200,
+  );
+  startObject();
+}
+
+$('surveyMark').addEventListener('click', () => {
+  const { az, el } = surveyDirection();
+  if (survey.kind === 'fence' || survey.step === 0) {
+    const pt = sightGroundPoint(survey.standpoint, survey.eyeHeight, az, el);
+    if (!pt) {
+      toast('Aim lower — right where it meets the ground (crosshair below the horizon).');
+      return;
+    }
+    survey.taps.push({ ...pt, az, el });
+    survey.marks.push({ az: centerDirection().az, el });
+    if (survey.kind === 'tree') survey.step = 1;
+  } else if (survey.step === 1) {
+    const h = sightHeight(survey.eyeHeight, survey.taps[0].distance, el);
+    if (h < 0.5 || el <= survey.taps[0].el) {
+      toast('Aim higher — at the very top of the tree.');
+      return;
+    }
+    survey.taps.push({ height: h, az, el });
+    survey.marks.push({ az: centerDirection().az, el });
+    survey.step = 2;
+  } else {
+    survey.taps.push({ az, el });
+    survey.marks.push({ az: centerDirection().az, el });
+    if (survey.step === 2) survey.step = 3;
+    else return finishTree();
+  }
+  refreshSurveyUi();
+});
+
+$('surveyUndo').addEventListener('click', () => {
+  survey.taps.pop();
+  survey.marks.pop();
+  if (survey.kind === 'tree') survey.step = Math.max(0, survey.taps.length);
+  refreshSurveyUi();
+});
+
+$('surveyDone').addEventListener('click', () => {
+  if (survey.kind === 'tree') {
+    toast(`Finish the tree first — ${survey.taps.length} of 4 marks.`);
+    return;
+  }
+  if (survey.taps.length < 2) {
+    toast('Mark at least two fence posts first.');
+    return;
+  }
+  const h = parseFloat(prompt('Fence height in meters:', '1.8'));
+  if (!Number.isFinite(h) || h <= 0) return;
+  persistSurveyObstacle(
+    {
+      type: 'fence',
+      id: `svy-${Date.now()}`,
+      points: survey.taps.map((t) => ({ x: t.x, y: t.y })),
+      height: h,
+    },
+    null,
+  );
+  toast(`🚧 fence with ${survey.taps.length} posts saved to the garden map ✓`, 3600);
+  startObject();
+});
+
+$('surveyKindTree').addEventListener('click', () => {
+  survey.kind = 'tree';
+  startObject();
+});
+$('surveyKindFence').addEventListener('click', () => {
+  survey.kind = 'fence';
+  startObject();
+});
+$('surveyMoved').addEventListener('click', () => surveyFix(true));
+$('surveyAgain').addEventListener('click', () => {
+  survey.kind = 'tree';
+  startObject(survey.lastTreeId);
+  toast('Re-sighting the last tree — walk somewhere else first, then mark base/top/edges again.', 4200);
+  refreshSurveyUi();
+});
+
+$('surveyBtn').addEventListener('click', () => {
+  survey.on = !survey.on;
+  if (survey.on) {
+    if (!survey.eyeHeightAsked) {
+      const h = parseFloat(prompt('How high do you hold the phone? Your eye height, in meters:', String(survey.eyeHeight)));
+      if (Number.isFinite(h) && h > 0.8 && h < 2.5) survey.eyeHeight = h;
+      survey.eyeHeightAsked = true;
+      const saved = readSaved();
+      saved.survey = { ...(saved.survey || {}), eyeHeight: survey.eyeHeight };
+      try {
+        localStorage.setItem('sun-garden', JSON.stringify(saved));
+      } catch { /* eye height just won't stick */ }
+    }
+    if (state.sweeping) $('sweepBtn').click();
+    surveyFix(true);
+    startObject();
+  }
+  $('surveyBtn').classList.toggle('active', survey.on);
+  $('surveyPanel').style.display = survey.on ? 'flex' : 'none';
+  $('sweepBtns').style.display = survey.on ? 'none' : '';
+  $('chips').style.display = survey.on ? 'none' : '';
+  if (survey.on) $('advice').style.display = 'none';
+});
+
+/** Gold markers where the user has tapped so far (compass-model frame). */
+function drawSurveyMarks() {
+  for (const m of survey.marks) {
+    // marks are stored in the compass-model frame; project() adds the
+    // align offset back for sensor mode, so undo it here (manual has none)
+    const p = project(m.az - (state.manualLook ? 0 : state.azOffset), m.el);
+    if (!p) continue;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y - 7);
+    ctx.lineTo(p.x + 7, p.y);
+    ctx.lineTo(p.x, p.y + 7);
+    ctx.lineTo(p.x - 7, p.y);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,214,90,0.9)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(10,12,16,0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+}
+
 // drag-to-look fallback (desktop or no sensor)
 let dragging = null;
 canvas.addEventListener('pointerdown', (ev) => {
@@ -687,4 +946,4 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // test hook: lets an automated browser drive orientation + inspect results
-window.__arDebug = { state, sweepResults: () => days.map((d) => ({ label: d.label, ...sweepResults(d) })), centerDirection };
+window.__arDebug = { state, survey, sweepResults: () => days.map((d) => ({ label: d.label, ...sweepResults(d) })), centerDirection };
