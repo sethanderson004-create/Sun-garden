@@ -19,10 +19,10 @@
  * at write time; lat/lon belong to app.js and are read, never written.
  */
 
-import { sunSampleTable, sunHoursGrid, monthlyHoursForLayers } from './sungrid.js?v=12';
-import { skylineLayersForPoint, blockedElevationAt, inLeaf } from './scene.js?v=12';
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=12';
-import { categorize } from './sunhours.js?v=12';
+import { sunSampleTable, sunHoursGrid, monthlyHoursForLayers } from './sungrid.js?v=13';
+import { skylineLayersForPoint, blockedElevationAt, inLeaf } from './scene.js?v=13';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=13';
+import { categorize } from './sunhours.js?v=13';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('map');
@@ -206,43 +206,61 @@ function worldPx(lat, lon, z) {
 }
 
 // Beyond its real imagery Esri sometimes 404s and sometimes serves flat
-// placeholder tiles with HTTP 200 (field-observed: they painted over the
-// picture at planning zooms). Both must read as "missing" so the ancestor
-// fallback engages: a probe canvas checks per-channel spread — real
-// imagery is never flat, placeholders are. Isolated flat tiles (a lake,
-// a big roof) just fall back individually; only a run of them at one
-// level steps the whole layer down (stops doomed re-requests on pan).
+// placeholder tiles with HTTP 200 (both field-observed). But a flat tile
+// alone proves nothing — zoomed in over a yard, *real* tiles are flat too
+// (lawn, asphalt, a big roof; field-observed false positive that blanked
+// the map). So flat tiles are held provisional and judged against the SAME
+// SPOT in the nearest loaded ancestor: texture there means detail should
+// exist (placeholder → fall back), flat there too means featureless ground
+// (real → keep). Only confirmed placeholders count toward stepping the
+// whole level down.
 const blankCountAt = {};
 let probeCtx = null;
+const FLAT_SPREAD = 12; // summed per-channel spread below this = featureless
 
-function looksBlank(img) {
-  try {
-    if (!probeCtx) {
-      const c = document.createElement('canvas');
-      c.width = c.height = 8;
-      probeCtx = c.getContext('2d', { willReadFrequently: true });
-    }
-    probeCtx.drawImage(img, 0, 0, 8, 8);
-    const d = probeCtx.getImageData(0, 0, 8, 8).data;
-    const min = [255, 255, 255];
-    const max = [0, 0, 0];
-    for (let i = 0; i < d.length; i += 4) {
-      for (let ch = 0; ch < 3; ch++) {
-        if (d[i + ch] < min[ch]) min[ch] = d[i + ch];
-        if (d[i + ch] > max[ch]) max[ch] = d[i + ch];
-      }
-    }
-    return max[0] - min[0] + (max[1] - min[1]) + (max[2] - min[2]) < 12;
-  } catch {
-    return false; // tainted canvas (no CORS) — assume real imagery
+/** Per-channel color spread of an image region, via an 8×8 downsample. */
+function spreadOf(img, sx, sy, sw, sh) {
+  if (!probeCtx) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 8;
+    probeCtx = c.getContext('2d', { willReadFrequently: true });
   }
+  probeCtx.drawImage(img, sx, sy, sw, sh, 0, 0, 8, 8);
+  const d = probeCtx.getImageData(0, 0, 8, 8).data;
+  const min = [255, 255, 255];
+  const max = [0, 0, 0];
+  for (let i = 0; i < d.length; i += 4) {
+    for (let ch = 0; ch < 3; ch++) {
+      if (d[i + ch] < min[ch]) min[ch] = d[i + ch];
+      if (d[i + ch] > max[ch]) max[ch] = d[i + ch];
+    }
+  }
+  return max[0] - min[0] + (max[1] - min[1]) + (max[2] - min[2]);
 }
 
 function tileMissing(t, z) {
   t.ok = false;
   blankCountAt[z] = (blankCountAt[z] || 0) + 1;
   if (z > 15 && maxTileZoom >= z && blankCountAt[z] >= 3) maxTileZoom = z - 1;
-  draw();
+}
+
+/** Decide a provisionally-flat tile once an ancestor is available. */
+function resolveFlatTile(t, z, x, y) {
+  for (let up = 1; up <= 7 && z - up >= 3; up++) {
+    const anc = tileCache.get(`${z - up}/${x >> up}/${y >> up}`);
+    if (anc?.ok) {
+      const frac = 256 / 2 ** up;
+      let ancSpread = 0;
+      try {
+        ancSpread = spreadOf(anc.img, (x % 2 ** up) * frac, (y % 2 ** up) * frac, frac, frac);
+      } catch {}
+      t.pendingFlat = false;
+      if (ancSpread >= FLAT_SPREAD) tileMissing(t, z); // placeholder confirmed
+      else t.ok = true; // featureless ground all the way down — real imagery
+      return;
+    }
+  }
+  // no ancestor loaded yet: keep showing the fallback, decide on a later draw
 }
 
 function tileFor(z, x, y) {
@@ -254,12 +272,24 @@ function tileFor(z, x, y) {
     t.img.crossOrigin = 'anonymous';
     t.img.onload = () => {
       t.ok = true;
-      // flat placeholders only exist past the real imagery — don't probe
-      // wide views, where a genuinely uniform tile (open water) is normal
-      if (z >= 18 && looksBlank(t.img)) tileMissing(t, z);
-      else draw();
+      // placeholders only exist past the real imagery, so probe close-in
+      // levels only — wide views legitimately contain uniform tiles
+      let flat = false;
+      if (z >= 18) {
+        try {
+          flat = spreadOf(t.img, 0, 0, t.img.width, t.img.height) < FLAT_SPREAD;
+        } catch {} // tainted canvas (no CORS) — assume real imagery
+      }
+      if (flat) {
+        t.ok = false;
+        t.pendingFlat = true;
+      }
+      draw();
     };
-    t.img.onerror = () => tileMissing(t, z);
+    t.img.onerror = () => {
+      tileMissing(t, z);
+      draw();
+    };
     t.img.src = TILE_URL(z, x, y);
     tileCache.set(key, t);
   }
@@ -286,6 +316,8 @@ function drawBasemap() {
       drawTileSlot(z, ((tx % n) + n) % n, ty, (tx * 256 - x0) * s, (ty * 256 - y0) * s, 256 * s + 0.6);
     }
   }
+  // a level demoted mid-pass (placeholders confirmed) needs one more pass
+  if (z > maxTileZoom) requestAnimationFrame(draw);
 }
 
 /**
@@ -297,6 +329,7 @@ function drawBasemap() {
  */
 function drawTileSlot(z, x, y, dx, dy, dSize) {
   const t = tileFor(z, x, y);
+  if (t.pendingFlat) resolveFlatTile(t, z, x, y);
   if (t.ok) {
     ctx.drawImage(t.img, dx, dy, dSize, dSize);
     return;
@@ -470,8 +503,9 @@ function draw() {
   if (cells) {
     const g = gridSpec(cells.n);
     const cw = g.cellSize * pxPerM();
+    // over imagery the tint must whisper, not shout — the photo is the map
     const overImagery = state.bg || state.basemap;
-    ctx.globalAlpha = overImagery ? 0.55 : 0.8;
+    ctx.globalAlpha = overImagery ? 0.38 : 0.8;
     if (state.movie) {
       const sun = movieSun();
       const leafOn = inLeaf(state.month, state.lat);
@@ -481,7 +515,7 @@ function draw() {
         const up = sun.elevation > 0;
         const sunny = up && sun.elevation > blockedElevationAt(state.obstacles, c.x, c.y, sun.azimuth, leafOn);
         ctx.fillStyle = sunny ? lit : shade;
-        ctx.globalAlpha = up ? (overImagery ? 0.55 : 0.8) : 0.9;
+        ctx.globalAlpha = up ? (overImagery ? 0.38 : 0.8) : 0.9;
         ctx.fillRect(xPx(c.x) - cw / 2, yPx(c.y) - cw / 2, cw + 0.5, cw + 0.5);
       }
     } else {
