@@ -19,10 +19,10 @@
  * at write time; lat/lon belong to app.js and are read, never written.
  */
 
-import { sunSampleTable, sunHoursGrid, monthlyHoursForLayers } from './sungrid.js?v=9';
-import { skylineLayersForPoint, blockedElevationAt, inLeaf } from './scene.js?v=9';
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=9';
-import { categorize } from './sunhours.js?v=9';
+import { sunSampleTable, sunHoursGrid, monthlyHoursForLayers } from './sungrid.js?v=10';
+import { skylineLayersForPoint, blockedElevationAt, inLeaf } from './scene.js?v=10';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=10';
+import { categorize } from './sunhours.js?v=10';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('map');
@@ -52,6 +52,9 @@ const state = {
   lat: 47.6062,
   lon: -122.3321,
   viewSize: 40, // meters shown across the canvas
+  viewCx: 0, // view-center offset from the lat/lon origin, meters east
+  viewCy: 0, // …and north (drag open ground to pan)
+  basemap: false, // satellite tiles under the sketch (opt-in — see satBtn)
   obstacles: [],
   month: new Date().getMonth() + 1,
   tool: 'select',
@@ -79,6 +82,9 @@ function loadSaved() {
   if (Number.isFinite(saved.lon)) state.lon = saved.lon;
   if (saved.scene) {
     if (Number.isFinite(saved.scene.viewSize)) state.viewSize = saved.scene.viewSize;
+    if (Number.isFinite(saved.scene.viewCx)) state.viewCx = saved.scene.viewCx;
+    if (Number.isFinite(saved.scene.viewCy)) state.viewCy = saved.scene.viewCy;
+    state.basemap = !!saved.scene.basemap;
     if (Array.isArray(saved.scene.obstacles)) state.obstacles = saved.scene.obstacles;
     if (saved.scene.pins && typeof saved.scene.pins === 'object') state.pins = saved.scene.pins;
   }
@@ -91,7 +97,14 @@ function persist() {
     'sun-garden',
     JSON.stringify({
       ...readSaved(),
-      scene: { viewSize: state.viewSize, obstacles: state.obstacles, pins: state.pins },
+      scene: {
+        viewSize: state.viewSize,
+        viewCx: state.viewCx,
+        viewCy: state.viewCy,
+        basemap: state.basemap,
+        obstacles: state.obstacles,
+        pins: state.pins,
+      },
     }),
   );
 }
@@ -110,10 +123,10 @@ function resize() {
 }
 
 const pxPerM = () => W / state.viewSize;
-const xPx = (x) => W / 2 + x * pxPerM();
-const yPx = (y) => W / 2 - y * pxPerM();
-const xOfPx = (px) => (px - W / 2) / pxPerM();
-const yOfPx = (py) => (W / 2 - py) / pxPerM();
+const xPx = (x) => W / 2 + (x - state.viewCx) * pxPerM();
+const yPx = (y) => W / 2 - (y - state.viewCy) * pxPerM();
+const xOfPx = (px) => state.viewCx + (px - W / 2) / pxPerM();
+const yOfPx = (py) => state.viewCy + (W / 2 - py) / pxPerM();
 
 function eventPoint(ev) {
   const r = canvas.getBoundingClientRect();
@@ -130,8 +143,8 @@ let recomputeTimer = 0;
 
 function gridSpec(n) {
   return {
-    x0: -state.viewSize / 2,
-    y0: -state.viewSize / 2,
+    x0: state.viewCx - state.viewSize / 2,
+    y0: state.viewCy - state.viewSize / 2,
     cellSize: state.viewSize / n,
     cols: n,
     rows: n,
@@ -157,6 +170,88 @@ function cellAt(x, y) {
   const row = Math.floor((y - g.y0) / g.cellSize);
   if (col < 0 || row < 0 || col >= g.cols || row >= g.rows) return null;
   return cells.list[row * g.cols + col];
+}
+
+// -------------------------------------------------- satellite basemap
+
+// Esri World Imagery tiles drawn under the sketch, opt-in (loading them
+// shares the user's approximate location with Esri — the confirm on satBtn
+// says so). The point of using a real tile pyramid: scale is *derived*, not
+// eyeballed. Web mercator ground resolution is a closed formula of latitude
+// and zoom, and the view is anchored to the garden's lat/lon, so meters on
+// the sketch and meters on the imagery agree automatically — no 📏 needed.
+
+const TILE_URL = (z, x, y) =>
+  `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
+const ESRI_ATTRIBUTION = 'Imagery: Esri, Maxar, Earthstar Geographics';
+const EQUATOR_RES = 156543.03392; // m per tile px at zoom 0 (256px tiles)
+const RAD = Math.PI / 180;
+
+const tileCache = new Map(); // "z/x/y" → { img, ok }
+let maxTileZoom = 22; // lowered when a zoom level 404s for this area
+let lastTileZoom = 0; // what drawBasemap actually used (debug/tests)
+
+function groundRes(z) {
+  return (EQUATOR_RES * Math.cos(state.lat * RAD)) / 2 ** z;
+}
+
+/** Web-mercator pixel of (lat, lon) in the zoom-z world image. */
+function worldPx(lat, lon, z) {
+  const n = 256 * 2 ** z;
+  const rad = lat * RAD;
+  return {
+    x: ((lon + 180) / 360) * n,
+    y: ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n,
+  };
+}
+
+function tileFor(z, x, y) {
+  const key = `${z}/${x}/${y}`;
+  let t = tileCache.get(key);
+  if (!t) {
+    if (tileCache.size > 400) tileCache.delete(tileCache.keys().next().value);
+    t = { img: new Image(), ok: false };
+    t.img.crossOrigin = 'anonymous';
+    t.img.onload = () => {
+      t.ok = true;
+      draw();
+    };
+    t.img.onerror = () => {
+      // this zoom isn't published for this area — step the whole layer down
+      if (z > 15 && maxTileZoom >= z) {
+        maxTileZoom = z - 1;
+        draw();
+      }
+    };
+    t.img.src = TILE_URL(z, x, y);
+    tileCache.set(key, t);
+  }
+  return t;
+}
+
+function drawBasemap() {
+  const wantRes = state.viewSize / W; // meters per canvas px
+  lastTileZoom = Math.max(
+    3,
+    Math.min(maxTileZoom, Math.ceil(Math.log2((EQUATOR_RES * Math.cos(state.lat * RAD)) / wantRes))),
+  );
+  const z = lastTileZoom;
+  const gr = groundRes(z);
+  const s = gr / wantRes; // canvas px per tile px
+  const origin = worldPx(state.lat, state.lon, z);
+  // world px at the canvas top-left (view center = origin + pan offset)
+  const x0 = origin.x + state.viewCx / gr - W / 2 / s;
+  const y0 = origin.y - state.viewCy / gr - W / 2 / s;
+  const n = 2 ** z;
+  for (let tx = Math.floor(x0 / 256); tx * 256 < x0 + W / s; tx++) {
+    for (let ty = Math.max(0, Math.floor(y0 / 256)); ty * 256 < y0 + W / s && ty < n; ty++) {
+      const t = tileFor(z, ((tx % n) + n) % n, ty);
+      if (t.ok) {
+        // +0.6 px bleed hides hairline seams between scaled tiles
+        ctx.drawImage(t.img, (tx * 256 - x0) * s, (ty * 256 - y0) * s, 256 * s + 0.6, 256 * s + 0.6);
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------- AR spot-check pins
@@ -298,7 +393,9 @@ function draw() {
   if (!W) return;
   ctx.clearRect(0, 0, W, W);
 
-  if (state.bg) {
+  if (state.basemap) {
+    drawBasemap();
+  } else if (state.bg) {
     // view-fit (cover) the screenshot; the scale tool calibrates viewSize
     const s = Math.max(W / state.bg.width, W / state.bg.height);
     ctx.globalAlpha = 0.9;
@@ -316,7 +413,8 @@ function draw() {
   if (cells) {
     const g = gridSpec(cells.n);
     const cw = g.cellSize * pxPerM();
-    ctx.globalAlpha = state.bg ? 0.55 : 0.8;
+    const overImagery = state.bg || state.basemap;
+    ctx.globalAlpha = overImagery ? 0.55 : 0.8;
     if (state.movie) {
       const sun = movieSun();
       const leafOn = inLeaf(state.month, state.lat);
@@ -326,7 +424,7 @@ function draw() {
         const up = sun.elevation > 0;
         const sunny = up && sun.elevation > blockedElevationAt(state.obstacles, c.x, c.y, sun.azimuth, leafOn);
         ctx.fillStyle = sunny ? lit : shade;
-        ctx.globalAlpha = up ? (state.bg ? 0.55 : 0.8) : 0.9;
+        ctx.globalAlpha = up ? (overImagery ? 0.55 : 0.8) : 0.9;
         ctx.fillRect(xPx(c.x) - cw / 2, yPx(c.y) - cw / 2, cw + 0.5, cw + 0.5);
       }
     } else {
@@ -385,6 +483,16 @@ function draw() {
   ctx.stroke();
   ctx.textAlign = 'left';
   ctx.fillText(`${barM} m`, W / 24, W - W / 24 - 6);
+
+  if (state.basemap) {
+    ctx.font = `${Math.max(9, W / 70)}px system-ui, sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = 3;
+    ctx.strokeText(ESRI_ATTRIBUTION, W - 8, W - 8);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(ESRI_ATTRIBUTION, W - 8, W - 8);
+  }
 }
 
 // ---------------------------------------------------------- hit testing
@@ -495,7 +603,7 @@ function setTool(tool) {
   document.querySelectorAll('.tool').forEach((b) =>
     b.classList.toggle('active', b.dataset.tool === tool));
   $('readout').textContent = {
-    select: 'Tap an obstacle to edit or drag to move it; tap open ground to read that spot’s hours.',
+    select: 'Tap an obstacle to edit or drag to move it; tap open ground for that spot’s hours, drag it to pan (➕/➖ zoom, 🌍 satellite underlay).',
     building: 'Drag a rectangle over the building.',
     tree: 'Press on the trunk and drag out to the edge of the crown.',
     fence: 'Click corner to corner along the fence; double-click to finish.',
@@ -558,12 +666,13 @@ canvas.addEventListener('pointerdown', (ev) => {
     if (hit >= 0) {
       pending = { kind: 'move', last: pt, moved: false };
     } else {
-      const c = cellAt(pt.x, pt.y);
-      if (c) {
-        const h = c.hours[state.month - 1];
-        $('readout').textContent =
-          `${MONTHS[state.month - 1]} at this spot: ${h.toFixed(1)} h direct sun — ${categorize(h).name}.`;
-      }
+      // open ground: a drag pans the view, a plain tap reads out the spot
+      pending = {
+        kind: 'pan',
+        cx: ev.clientX, cy: ev.clientY,
+        startCx: ev.clientX, startCy: ev.clientY,
+        pt, moved: false,
+      };
     }
     draw();
   }
@@ -584,6 +693,18 @@ canvas.addEventListener('pointermove', (ev) => {
     state.pins[pending.when] = { x: pt.x, y: pt.y };
     pending.moved = true;
     draw();
+  } else if (pending.kind === 'pan') {
+    if (!pending.moved &&
+        Math.hypot(ev.clientX - pending.startCx, ev.clientY - pending.startCy) < 5) return;
+    pending.moved = true;
+    // client-px deltas → meters, so the ground tracks the finger exactly
+    const r = canvas.getBoundingClientRect();
+    const toM = (W / r.width) / pxPerM();
+    state.viewCx -= (ev.clientX - pending.cx) * toM;
+    state.viewCy += (ev.clientY - pending.cy) * toM;
+    pending.cx = ev.clientX;
+    pending.cy = ev.clientY;
+    recompute(true);
   } else if (pending.kind === 'polyline') {
     pending.cursor = pt;
     draw();
@@ -645,6 +766,19 @@ canvas.addEventListener('pointerup', () => {
       draw();
     }
     pending = null;
+  } else if (pending.kind === 'pan') {
+    if (pending.moved) {
+      persist();
+      recompute();
+    } else {
+      const c = cellAt(pending.pt.x, pending.pt.y);
+      if (c) {
+        const h = c.hours[state.month - 1];
+        $('readout').textContent =
+          `${MONTHS[state.month - 1]} at this spot: ${h.toFixed(1)} h direct sun — ${categorize(h).name}.`;
+      }
+    }
+    pending = null;
   }
   // polyline pends across clicks until double-click
 });
@@ -653,6 +787,44 @@ canvas.addEventListener('dblclick', (ev) => {
   ev.preventDefault();
   if (state.tool === 'fence') finishFence();
 });
+
+// ------------------------------------------------- satellite & zoom UI
+
+function updateSatUi() {
+  $('satBtn').classList.toggle('active', state.basemap);
+  const scaleBtn = document.querySelector('[data-tool="scale"]');
+  scaleBtn.disabled = state.basemap;
+  scaleBtn.title = state.basemap
+    ? 'Scale comes from the satellite imagery automatically'
+    : 'Drag a line over something you know the length of';
+  if (state.basemap && state.tool === 'scale') setTool('select');
+}
+
+$('satBtn').addEventListener('click', () => {
+  if (!state.basemap) {
+    if (!confirm(
+      'Show satellite imagery under your sketch?\n\n' +
+      'Tiles are loaded from Esri (arcgisonline.com), so your approximate ' +
+      'location is shared with that service. The imagery scale is exact — ' +
+      'no 📏 calibration needed — but photos can be a few years old.',
+    )) return;
+    state.basemap = true;
+    state.bg = null; // the screenshot underlay and live tiles don't stack
+  } else {
+    state.basemap = false;
+  }
+  updateSatUi();
+  persist();
+  draw();
+});
+
+function zoomBy(factor) {
+  state.viewSize = Math.min(300, Math.max(8, state.viewSize * factor));
+  persist();
+  recompute();
+}
+$('zoomInBtn').addEventListener('click', () => zoomBy(1 / 1.3));
+$('zoomOutBtn').addEventListener('click', () => zoomBy(1.3));
 
 // --------------------------------------------------------- photo & clear
 
@@ -663,6 +835,11 @@ $('photoFile').addEventListener('change', () => {
   const img = new Image();
   img.onload = () => {
     state.bg = img;
+    if (state.basemap) {
+      state.basemap = false;
+      updateSatUi();
+      persist();
+    }
     URL.revokeObjectURL(img.src);
     setTool('scale');
     $('readout').textContent =
@@ -717,6 +894,7 @@ $('monthSlider').value = state.month;
 updateMonthOut();
 updateTimeOut();
 $('locLabel').textContent = `📍 ${state.lat.toFixed(3)}, ${state.lon.toFixed(3)} (set on the tracer page)`;
+updateSatUi();
 setTool(state.obstacles.length ? 'select' : 'building');
 recompute();
 resize();
@@ -742,4 +920,6 @@ window.__mapDebug = {
     const { pos, rows, ok } = pinVerdict(state.checks[i]);
     return { pos, ok, rows };
   },
+  basemap: () => ({ z: lastTileZoom, tiles: [...tileCache.keys()] }),
+  worldPx,
 };

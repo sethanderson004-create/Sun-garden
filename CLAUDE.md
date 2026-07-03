@@ -164,8 +164,18 @@ GPS-placed (draggable to correct; overrides live in `scene.pins` keyed by
 hours match the sketch's prediction at that point within 1.25 h, orange ≠
 otherwise; sweep rows under 0.4 coverage don't judge; the `Mar / Sep 21`
 label compares against whichever equinox month fits better (capture-time
-foliage is unknown). Whole garden-map feature not yet field-tested on a
-phone. Known rough edges: no undo on the map page; tree default is
+foliage is unknown). The map also has an opt-in **🌍 satellite basemap** (Esri World Imagery
+tiles, `server.arcgisonline.com` — attribution drawn on-canvas, consent
+confirm explains location is shared with Esri): scale is *derived* from the
+web-mercator pyramid (`156543.03392·cos(lat)/2^z` m/px anchored at the
+garden's lat/lon), so sketch meters and imagery meters agree with no 📏
+calibration — the scale tool is auto-disabled while imagery is live (it
+remains the path for 🛰 screenshots). Drag open ground to pan (view center
+`viewCx/viewCy`, persisted), ➕/➖ zoom; tile zoom self-degrades via
+`maxTileZoom` when a level 404s. Tile-layer wiring is Playwright-verified
+against stubbed tiles (the sandbox cannot reach Esri); **live imagery needs
+a quick phone/desktop check**. Whole garden-map feature not yet field-tested
+on a phone. Known rough edges: no undo on the map page; tree default is
 evergreen (conservative); building rectangles are axis-aligned only.
 
 Field-verified on the owner's iPhone 12 Pro: pano loading/zoom/tracing works;

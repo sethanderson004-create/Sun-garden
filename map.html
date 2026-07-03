@@ -84,7 +84,8 @@
   }
   button:hover { border-color: var(--accent); color: var(--accent); }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.tool.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: 0.45; pointer-events: none; }
   .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center; }
   .toolbar .spacer { flex: 1; }
   canvas#map {
@@ -132,12 +133,16 @@
       <button class="tool" data-tool="fence" title="Click corner to corner; double-click to finish">🚧 Fence</button>
       <button class="tool" data-tool="scale" title="Drag a line over something you know the length of">📏 Scale</button>
       <span class="spacer"></span>
+      <button id="zoomInBtn" title="Zoom in">➕</button>
+      <button id="zoomOutBtn" title="Zoom out">➖</button>
+      <button id="satBtn" title="Correctly-scaled satellite imagery under your sketch (loads tiles from Esri)">🌍 Satellite</button>
       <button id="photoBtn" title="Trace over a screenshot of the satellite view">🛰 Photo</button>
       <input type="file" id="photoFile" accept="image/*" style="display:none" />
       <button id="clearBtn" class="danger">✕ Clear</button>
     </div>
     <canvas id="map"></canvas>
-    <div id="readout">Pick a tool and sketch — the map updates as you draw. North is up.</div>
+    <div id="readout">Pick a tool and sketch — the map updates as you draw. North is up. Turn on 🌍 Satellite
+      to sketch over real, correctly-scaled imagery of your yard; drag open ground to pan, ➕/➖ to zoom.</div>
     <div class="legend">
       <span><span class="swatch" style="background:var(--cat-full-sun)"></span>Full sun ≥6 h</span>
       <span><span class="swatch" style="background:var(--cat-part-sun)"></span>Part sun 4–6 h</span>
@@ -177,6 +182,6 @@
       the pin for the numbers, drag it if it's not where you stood.</p>
   </div>
 </main>
-<script type="module" src="src/map.js?v=9"></script>
+<script type="module" src="src/map.js?v=10"></script>
 </body>
 </html>
