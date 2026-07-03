@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   skylineLayersForPoint,
   sceneSkylineAt,
+  blockedElevationAt,
   inLeaf,
   layerAt,
 } from '../src/scene.js';
@@ -166,4 +167,35 @@ test('layers stay within skyline bounds and interpolate smoothly', () => {
   const { solid } = skylineLayersForPoint(scene, 0, 0);
   assert.ok(solid.every((v) => v >= 0 && v <= 85), 'clamped to 0–85');
   approx(layerAt(solid, 359.5), (solid[359] + solid[0]) / 2, 1e-9, 'wraps across north');
+});
+
+test('blockedElevationAt agrees with the binned skyline and gates on leaf', () => {
+  const scene = [
+    {
+      type: 'building',
+      footprint: [{ x: -8, y: 6 }, { x: 4, y: 6 }, { x: 4, y: 16 }, { x: -8, y: 16 }],
+      height: 5,
+    },
+    { type: 'fence', points: [{ x: -12, y: -12 }, { x: 12, y: -12 }], height: 1.8 },
+    { type: 'tree', x: 8, y: -4, height: 10, crownWidth: 7, deciduous: true },
+  ];
+  const { solid, leafy } = skylineLayersForPoint(scene, 0, 0);
+  for (const az of [0, 45, 137, 180, 200, 315]) {
+    approx(
+      blockedElevationAt(scene, 0, 0, az, true),
+      Math.max(layerAt(solid, az), layerAt(leafy, az)),
+      0.5,
+      `single-ray vs binned at az ${az} (leaf on)`,
+    );
+    approx(
+      blockedElevationAt(scene, 0, 0, az, false),
+      layerAt(solid, az),
+      0.5,
+      `single-ray vs solid-only at az ${az} (leaf off)`,
+    );
+  }
+  // The shadow-movie test itself: sun low in the north-ish sky is behind the
+  // house; the same elevation due south is clear.
+  assert.ok(blockedElevationAt(scene, 0, 0, 0) > 20, 'house blocks a low northern sun');
+  assert.equal(blockedElevationAt(scene, 0, 0, 270), 0, 'western sky open');
 });

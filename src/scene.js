@@ -23,7 +23,7 @@
  * azimuth bins, elevations clamped to 0–85), solid + leafy.
  */
 
-import { treeProfile, paintProfile } from './obstacles.js?v=7'; // ?v= must match app.js — see cache-busting note there
+import { treeProfile, paintProfile } from './obstacles.js?v=8'; // ?v= must match app.js — see cache-busting note there
 
 const RAD = Math.PI / 180;
 const MAX_EL = 85;
@@ -141,6 +141,55 @@ export function skylineLayersForPoint(scene, x, y, plantHeight = 0) {
     }
   }
   return { solid, leafy };
+}
+
+/**
+ * Exact blocked elevation toward one azimuth — the "shadow movie" query:
+ * a point is shaded at some instant iff this exceeds the sun's elevation.
+ * One ray against the walls plus the tree-crown formula, no 360-bin
+ * skyline build, so a whole grid can be tested per animation frame.
+ * `leafOn` says whether deciduous crowns currently block.
+ */
+export function blockedElevationAt(scene, x, y, azimuth, leafOn = true, plantHeight = 0) {
+  const obstacles = Array.isArray(scene) ? scene : (scene && scene.obstacles) || [];
+  const dirx = Math.sin(azimuth * RAD);
+  const diry = Math.cos(azimuth * RAD);
+  let blocked = 0;
+  for (const ob of obstacles) {
+    if (ob.height - plantHeight <= 0) continue;
+    let el = 0;
+    if (ob.type === 'tree') {
+      if (ob.deciduous && !leafOn) continue;
+      const dx = ob.x - x;
+      const dy = ob.y - y;
+      const distance = Math.hypot(dx, dy);
+      el = distance <= (ob.crownWidth || 0) / 2
+        ? MAX_EL
+        : treeProfile({
+            azimuth: azimuthTo(dx, dy),
+            distance,
+            height: ob.height,
+            crownWidth: ob.crownWidth,
+            plantHeight,
+          })(azimuth);
+    } else if (ob.type === 'building' || ob.type === 'fence') {
+      const closed = ob.type === 'building';
+      const pts = closed ? ob.footprint : ob.points;
+      if (closed && pointInPolygon(x, y, pts)) {
+        el = MAX_EL;
+      } else if (pts && pts.length >= 2) {
+        const edges = closed ? pts.length : pts.length - 1;
+        let dist = Infinity;
+        for (let i = 0; i < edges; i++) {
+          const d = rayHitDistance(x, y, dirx, diry, pts[i], pts[(i + 1) % pts.length]);
+          if (d < dist) dist = d;
+        }
+        if (dist < Infinity) el = Math.atan2(ob.height - plantHeight, dist) / RAD;
+      }
+    }
+    if (el > blocked) blocked = el;
+  }
+  return Math.min(MAX_EL, blocked);
 }
 
 /**

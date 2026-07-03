@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sun-Garden — garden sun map</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='5' fill='%23eda100'/%3E%3C/svg%3E" />
+<style>
+  :root {
+    --page: #f9f9f7;
+    --surface-1: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --gridline: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    /* ordinal blue ramp, validated light mode: shade → sun */
+    --cat-full-shade: #86b6ef;
+    --cat-part-shade: #5598e7;
+    --cat-part-sun: #2a78d6;
+    --cat-full-sun: #184f95;
+    --path-june: #eda100;
+    --path-equinox: #1baf7a;
+    --path-december: #2a78d6;
+    --path-today: #eb6834;
+    --skyline-fill: rgba(82, 81, 78, 0.62);
+    --skyline-edge: #52514e;
+    --leafy-fill: rgba(27, 175, 122, 0.30);
+    --leafy-edge: #1baf7a;
+    --accent: #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #0d0d0d;
+      --surface-1: #1a1a19;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --gridline: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      /* ordinal blue ramp, validated dark mode: shade → sun */
+      --cat-full-shade: #b7d3f6;
+      --cat-part-shade: #86b6ef;
+      --cat-part-sun: #3987e5;
+      --cat-full-sun: #1c5cab;
+      --path-june: #c98500;
+      --path-equinox: #199e70;
+      --path-december: #3987e5;
+      --path-today: #d95926;
+      --skyline-fill: rgba(195, 194, 183, 0.30);
+      --skyline-edge: #c3c2b7;
+      --leafy-fill: rgba(25, 158, 112, 0.35);
+      --leafy-edge: #199e70;
+      --accent: #3987e5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 56px; }
+  h1 { font-size: 22px; margin: 0 0 2px; }
+  .tagline { color: var(--text-secondary); margin: 0 0 14px; }
+  .nav { display: flex; gap: 12px; margin-bottom: 14px; font-size: 13px; }
+  .nav a { color: var(--accent); text-decoration: none; }
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 8px; }
+  .hint { font-size: 13px; color: var(--text-muted); margin: 6px 0 0; }
+  button {
+    padding: 7px 12px; border-radius: 6px; border: 1px solid var(--baseline);
+    background: var(--surface-1); color: var(--text-primary);
+    font: inherit; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.tool.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center; }
+  .toolbar .spacer { flex: 1; }
+  canvas#map {
+    width: 100%; height: auto; display: block; border-radius: 6px;
+    touch-action: none; cursor: crosshair; border: 1px solid var(--border);
+    background: var(--page);
+  }
+  #readout { font-size: 13px; color: var(--text-secondary); min-height: 1.4em; margin-top: 6px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0 0; font-size: 12.5px; color: var(--text-secondary); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .sliders { display: flex; flex-direction: column; gap: 10px; }
+  .sliderRow { display: flex; align-items: center; gap: 10px; }
+  .sliderRow label { font-size: 13px; color: var(--text-secondary); min-width: 130px; }
+  .sliderRow output { font-size: 13px; font-weight: 600; min-width: 88px; font-variant-numeric: tabular-nums; }
+  input[type="range"] { flex: 1; accent-color: var(--accent); }
+  input[type="number"], select {
+    padding: 6px 8px; border-radius: 6px; border: 1px solid var(--baseline);
+    background: var(--surface-1); color: var(--text-primary); font: inherit; width: 90px;
+  }
+  select { width: auto; }
+  #editPanel { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  #editPanel .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field label { font-size: 12px; color: var(--text-muted); }
+  .check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding-bottom: 8px; }
+  button.danger:hover { border-color: #c0392b; color: #c0392b; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🗺 Garden sun map</h1>
+  <p class="tagline">Sketch what casts shade — house, trees, fences — and watch the whole yard's sun hours paint themselves.</p>
+  <div class="nav">
+    <a href="./index.html">✎ Skyline tracer</a>
+    <a href="./ar.html">📱 AR sun view</a>
+    <span id="locLabel" style="color:var(--text-muted)"></span>
+  </div>
+
+  <div class="card">
+    <div class="toolbar">
+      <button class="tool" data-tool="select" title="Tap to inspect or select; drag to move">☝ Select</button>
+      <button class="tool" data-tool="building" title="Drag a rectangle over the house/garage/shed">🏠 Building</button>
+      <button class="tool" data-tool="tree" title="Tap the trunk, drag out the crown">🌳 Tree</button>
+      <button class="tool" data-tool="fence" title="Click corner to corner; double-click to finish">🚧 Fence</button>
+      <button class="tool" data-tool="scale" title="Drag a line over something you know the length of">📏 Scale</button>
+      <span class="spacer"></span>
+      <button id="photoBtn" title="Trace over a screenshot of the satellite view">🛰 Photo</button>
+      <input type="file" id="photoFile" accept="image/*" style="display:none" />
+      <button id="clearBtn" class="danger">✕ Clear</button>
+    </div>
+    <canvas id="map"></canvas>
+    <div id="readout">Pick a tool and sketch — the map updates as you draw. North is up.</div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--cat-full-sun)"></span>Full sun ≥6 h</span>
+      <span><span class="swatch" style="background:var(--cat-part-sun)"></span>Part sun 4–6 h</span>
+      <span><span class="swatch" style="background:var(--cat-part-shade)"></span>Part shade 2–4 h</span>
+      <span><span class="swatch" style="background:var(--cat-full-shade)"></span>Full shade &lt;2 h</span>
+    </div>
+
+    <div id="editPanel">
+      <div class="row">
+        <strong id="editTitle" style="min-width:90px"></strong>
+        <div class="field"><label>Preset</label><select id="editPreset"></select></div>
+        <div class="field"><label>Height (m)</label><input type="number" id="editHeight" min="0.2" step="0.1" /></div>
+        <div class="field" id="crownField"><label>Crown width (m)</label><input type="number" id="editCrown" min="0.5" step="0.5" /></div>
+        <label class="check" id="leafField"><input type="checkbox" id="editDeciduous" /> 🍂 loses leaves in winter</label>
+        <button id="deleteBtn" class="danger">🗑 Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="sliders">
+      <div class="sliderRow">
+        <label for="monthSlider">Month</label>
+        <input type="range" id="monthSlider" min="1" max="12" step="1" />
+        <output id="monthOut"></output>
+      </div>
+      <div class="sliderRow">
+        <label for="timeSlider"><input type="checkbox" id="movieToggle" /> Shadow movie</label>
+        <input type="range" id="timeSlider" min="-420" max="420" step="10" value="0" disabled />
+        <output id="timeOut">12:00 solar</output>
+      </div>
+    </div>
+    <p class="hint">The month slider re-colors instantly — every cell already knows its whole year. Turn on the
+      shadow movie and scrub through the day to watch shadows sweep the yard (times are local solar time; hours
+      are clear-sky direct sun on the 21st of the month).</p>
+  </div>
+</main>
+<script type="module" src="src/map.js?v=8"></script>
+</body>
+</html>

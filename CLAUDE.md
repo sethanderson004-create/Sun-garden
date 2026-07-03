@@ -40,6 +40,25 @@ The codebase is split into a pure computational engine (tested) and a UI layer
 - **`src/obstacles.js`** — converts measured obstructions (fence height +
   distance, tree crown) into skyline profiles; exists because near obstacles
   a tape measure beats tracing.
+- **`src/scene.js`** — garden-map scene engine (Phase 2 M1): a top-down
+  sketch in world coordinates (units of meters, x east / y north; obstacles:
+  `building` polygon footprint + height, `fence` polyline + height, `tree`
+  x/y/height/crownWidth/deciduous) → the same solid/leafy skyline layer pair
+  app.js spots use, by casting one ray per 1° azimuth bin against the walls
+  (nearest hit wins) and reusing `treeProfile` for crowns. `sceneSkylineAt()`
+  returns a month-aware skyline that plugs straight into sunhours.js. Has its
+  own engine-side `inLeaf(month, lat)` and `layerAt` (app.js's close over UI
+  state).
+- **`src/sungrid.js`** — whole-garden evaluation (Phase 2 M2):
+  `sunSampleTable(lat, lon, year)` precomputes the 21st-of-each-month sun
+  positions once (5-min steps, above-horizon only, ~1.7k samples, ~13 ms);
+  `sunHoursGrid(scene, grid, table)` sweeps a north-aligned grid, each cell
+  carrying all 12 months of hours — so a heatmap month slider needs **no
+  recompute**, only sketch edits do (~215 ms for 50×50 cells × 6 obstacles;
+  if that's too slow while dragging, use a coarser draft grid, not engine
+  hacks). The fast path must stay *bit-for-bit equal* to `sunHoursForDay` —
+  an equality test enforces it; the table pre-splits each sample azimuth into
+  bin index + fraction using exactly `layerAt`'s arithmetic to keep that true.
 - **`src/app.js` + `index.html`** — all state, canvas rendering, and DOM.
   Imports the engine; the engine never imports from here.
 - **`src/ar.js` + `ar.html`** — the AR sun view (beta): camera passthrough +
@@ -125,7 +144,24 @@ behavior) using tolerance helper `approx()` — not snapshot values. When adding
 engine features, test physical invariants (e.g. "blocking never adds sun",
 "intervals sum to the integration") rather than exact decimals.
 
-## Status & near-term roadmap (as of 2026-07-02)
+## Status & near-term roadmap (as of 2026-07-03)
+
+**Garden map (top-down shadow simulator, PLAN.md Phase 2) built through M3**
+on branch `claude/sungarden-full-map-plan-pw2xlm` (PR #10): M1 scene engine +
+M2 sun grid (tested), and M3 the UI — `map.html` + `src/map.js` (third page,
+ar.html pattern: imports engine only, owns the `scene` localStorage key under
+the storage-ownership rule below; Playwright-verified: draw/edit/move tools,
+persistence merge, month slider, shadow movie, scale tool). UX as agreed:
+scale set by drawing a line over a known length; optional
+satellite-screenshot trace-over (view-fit image, never persisted); heatmap
+recomputes live on sketch edits (draft 20×20 grid while dragging, 48×48 on
+release; month slider is free — cells carry all 12 months); time-of-day
+"shadow movie" via `blockedElevationAt` (one exact ray per cell, no grid);
+height presets ("1 story", small/medium/large tree) with tap-to-edit.
+Not yet field-tested on a phone. **M4 next**: saved `arChecks` appear as
+draggable pins on the map showing measured-vs-predicted hours to calibrate
+the sketch. Known rough edges: no undo on the map page; tree default is
+evergreen (conservative); building rectangles are axis-aligned only.
 
 Field-verified on the owner's iPhone 12 Pro: pano loading/zoom/tracing works;
 AR arcs are steady while panning (after the motion-gated compass + align-to-
