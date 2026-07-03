@@ -19,10 +19,10 @@
  * at write time; lat/lon belong to app.js and are read, never written.
  */
 
-import { sunSampleTable, sunHoursGrid, monthlyHoursForLayers } from './sungrid.js?v=10';
-import { skylineLayersForPoint, blockedElevationAt, inLeaf } from './scene.js?v=10';
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=10';
-import { categorize } from './sunhours.js?v=10';
+import { sunSampleTable, sunHoursGrid, monthlyHoursForLayers } from './sungrid.js?v=11';
+import { skylineLayersForPoint, blockedElevationAt, inLeaf } from './scene.js?v=11';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=11';
+import { categorize } from './sunhours.js?v=11';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('map');
@@ -188,7 +188,7 @@ const EQUATOR_RES = 156543.03392; // m per tile px at zoom 0 (256px tiles)
 const RAD = Math.PI / 180;
 
 const tileCache = new Map(); // "z/x/y" → { img, ok }
-let maxTileZoom = 22; // lowered when a zoom level 404s for this area
+let maxTileZoom = 23; // the service's max LOD; lowered when a level 404s here
 let lastTileZoom = 0; // what drawBasemap actually used (debug/tests)
 
 function groundRes(z) {
@@ -245,11 +245,31 @@ function drawBasemap() {
   const n = 2 ** z;
   for (let tx = Math.floor(x0 / 256); tx * 256 < x0 + W / s; tx++) {
     for (let ty = Math.max(0, Math.floor(y0 / 256)); ty * 256 < y0 + W / s && ty < n; ty++) {
-      const t = tileFor(z, ((tx % n) + n) % n, ty);
-      if (t.ok) {
-        // +0.6 px bleed hides hairline seams between scaled tiles
-        ctx.drawImage(t.img, (tx * 256 - x0) * s, (ty * 256 - y0) * s, 256 * s + 0.6, 256 * s + 0.6);
-      }
+      // +0.6 px bleed hides hairline seams between scaled tiles
+      drawTileSlot(z, ((tx % n) + n) % n, ty, (tx * 256 - x0) * s, (ty * 256 - y0) * s, 256 * s + 0.6);
+    }
+  }
+}
+
+/**
+ * Draw one tile slot; while the exact tile is missing (still loading, or
+ * sharper than anything published for this area) draw the matching quarter
+ * of the nearest available ancestor scaled up instead. Close-in planning
+ * zooms past Esri's max imagery level in most neighborhoods — the picture
+ * must go soft there, never blank.
+ */
+function drawTileSlot(z, x, y, dx, dy, dSize) {
+  const t = tileFor(z, x, y);
+  if (t.ok) {
+    ctx.drawImage(t.img, dx, dy, dSize, dSize);
+    return;
+  }
+  for (let up = 1; up <= 7 && z - up >= 3; up++) {
+    const anc = tileFor(z - up, x >> up, y >> up);
+    if (anc.ok) {
+      const frac = 256 / 2 ** up;
+      ctx.drawImage(anc.img, (x % 2 ** up) * frac, (y % 2 ** up) * frac, frac, frac, dx, dy, dSize, dSize);
+      return;
     }
   }
 }
