@@ -19,10 +19,11 @@
  * at write time; lat/lon belong to app.js and are read, never written.
  */
 
-import { sunSampleTable, sunHoursGrid, monthlyHoursForLayers } from './sungrid.js?v=15';
-import { skylineLayersForPoint, blockedElevationAt, inLeaf } from './scene.js?v=15';
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=15';
-import { categorize } from './sunhours.js?v=15';
+import { sunSampleTable, sunHoursGrid, monthlyHoursForLayers } from './sungrid.js?v=16';
+import { skylineLayersForPoint, blockedElevationAt, inLeaf } from './scene.js?v=16';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=16';
+import { categorize } from './sunhours.js?v=16';
+import { checkAnchors, monthlyResiduals, idwResidualAt } from './blend.js?v=16';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('map');
@@ -46,6 +47,15 @@ const PRESETS = {
 const GRID_N = 48;
 const DRAFT_N = 20;
 
+// seed-packet language for each light category (same voice as ar.js ADVICE)
+const PLANTS = {
+  'Full sun': 'tomatoes, peppers, squash, basil',
+  'Part sun': 'bush beans, beets, carrots, chard',
+  'Part shade': 'lettuce, spinach, kale, cilantro',
+  'Full shade': 'ferns, hostas, and other shade-lovers',
+};
+const MONTH_ABBR = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+
 // ---------------------------------------------------------------- state
 
 const state = {
@@ -62,7 +72,9 @@ const state = {
   movie: false,
   movieMin: 0, // minutes from solar noon
   bg: null, // background Image (never persisted)
-  checks: [], // saved AR spot checks (owned by ar.js — read-only here)
+  editing: false, // drawing tools shown only on demand — the default view is answers
+  filter: null, // plant-light filter: category name or null
+  checks: [], // saved AR spot checks (owned by ar.js)
   pins: {}, // user-corrected pin positions, keyed by check.when (ours, in scene)
   pinSel: null, // `when` of the selected pin
 };
@@ -151,14 +163,56 @@ function gridSpec(n) {
   };
 }
 
+// Measured spots as a residual field (blend.js): the model gives every cell
+// its seasonal shape, measurements pin the level near where they were taken.
+let measureSpots = []; // [{ x, y, res: Float64Array(12) }], rebuilt per recompute
+let daylight = null; // clamp ceiling per month (hours of sun above horizon)
+
+function rebuildMeasureSpots() {
+  measureSpots = [];
+  daylight = table.months.map((m) => (m.samples.length * table.stepMinutes) / 60);
+  for (const check of state.checks) {
+    const anchors = checkAnchors(check);
+    if (!anchors.length) continue;
+    const pos = pinPos(check);
+    const model = monthlyHoursForLayers(skylineLayersForPoint(state.obstacles, pos.x, pos.y), table);
+    measureSpots.push({ x: pos.x, y: pos.y, res: monthlyResiduals(anchors, model) });
+  }
+}
+
+function applyMeasurements(list) {
+  if (!measureSpots.length) return;
+  for (const cell of list) {
+    const res = idwResidualAt(cell.x, cell.y, measureSpots);
+    for (let m = 0; m < 12; m++) {
+      cell.hours[m] = Math.min(daylight[m], Math.max(0, cell.hours[m] + res[m]));
+    }
+  }
+}
+
+/** Calibrated 12-month hours at an exact point (spot cards, readouts). */
+function calibrated12At(x, y) {
+  table ??= sunSampleTable(state.lat, state.lon, year);
+  const model = monthlyHoursForLayers(skylineLayersForPoint(state.obstacles, x, y), table);
+  const res = idwResidualAt(x, y, measureSpots);
+  const out = new Float64Array(12);
+  for (let m = 0; m < 12; m++) out[m] = Math.min(daylight?.[m] ?? 24, Math.max(0, model[m] + res[m]));
+  return out;
+}
+
 function recompute(draft = false) {
   table ??= sunSampleTable(state.lat, state.lon, year);
+  rebuildMeasureSpots();
   const n = draft ? DRAFT_N : GRID_N;
-  cells = { n, list: sunHoursGrid(state.obstacles, gridSpec(n), table) };
+  const list = sunHoursGrid(state.obstacles, gridSpec(n), table);
+  applyMeasurements(list);
+  cells = { n, list };
   if (draft) {
     // settle to the full grid shortly after the interaction pauses
     clearTimeout(recomputeTimer);
     recomputeTimer = setTimeout(() => recompute(false), 250);
+  } else {
+    renderSpots();
   }
   draw();
 }
@@ -519,9 +573,17 @@ function draw() {
         ctx.fillRect(xPx(c.x) - cw / 2, yPx(c.y) - cw / 2, cw + 0.5, cw + 0.5);
       }
     } else {
+      const baseAlpha = ctx.globalAlpha;
       for (const c of cells.list) {
-        const cat = categorize(c.hours[state.month - 1]);
-        ctx.fillStyle = cssVar(CAT_VAR[cat.name]);
+        const dim = state.filter && !cellQualifies(c, state.filter);
+        if (dim) {
+          ctx.fillStyle = cssVar('--baseline');
+          ctx.globalAlpha = overImagery ? 0.12 : 0.22;
+        } else {
+          const cat = categorize(c.hours[state.month - 1]);
+          ctx.fillStyle = cssVar(CAT_VAR[cat.name]);
+          ctx.globalAlpha = baseAlpha;
+        }
         ctx.fillRect(xPx(c.x) - cw / 2, yPx(c.y) - cw / 2, cw + 0.5, cw + 0.5);
       }
     }
@@ -584,6 +646,124 @@ function draw() {
     ctx.fillStyle = '#fff';
     ctx.fillText(ESRI_ATTRIBUTION, W - 8, W - 8);
   }
+}
+
+// -------------------------------------------------- plant-light filtering
+
+/** Months a summer crop actually lives through, hemisphere-aware. */
+function growingMonths() {
+  return state.lat >= 0 ? [5, 6, 7, 8, 9] : [11, 12, 1, 2, 3];
+}
+
+/**
+ * Does a cell suit plants of this light category — judged across the whole
+ * growing season, not one month? Sun categories need their minimum met all
+ * season (a June-only sunny spot fails a tomato by September); shade plants
+ * need protection from a scorching peak.
+ */
+function cellQualifies(cell, category) {
+  const months = growingMonths();
+  if (category === 'Full shade') {
+    return months.every((m) => cell.hours[m - 1] < 4);
+  }
+  const need = { 'Full sun': 6, 'Part sun': 4, 'Part shade': 2 }[category];
+  return months.every((m) => cell.hours[m - 1] >= need);
+}
+
+const FILTER_BLURB = {
+  'Full sun': '☀ Colored ground keeps 6+ h of sun all season — happy there: ',
+  'Part sun': '⛅ Colored ground keeps 4+ h all season — happy there: ',
+  'Part shade': '🌤 Colored ground keeps 2+ h all season — happy there: ',
+  'Full shade': '🌳 Colored ground stays gently lit (under 4 h at peak) — happy there: ',
+};
+
+function setFilter(category) {
+  state.filter = state.filter === category ? null : category;
+  document.querySelectorAll('#plantChips .chip').forEach((c) =>
+    c.classList.toggle('active', c.dataset.cat === state.filter));
+  $('readout').textContent = state.filter
+    ? FILTER_BLURB[state.filter] + PLANTS[state.filter] + '.'
+    : 'Your yard, colored by direct sun. Tap anywhere for that spot’s light.';
+  draw();
+}
+document.querySelectorAll('#plantChips .chip').forEach((c) =>
+  c.addEventListener('click', () => setFilter(c.dataset.cat)));
+
+// ------------------------------------------------------ measured-spot cards
+
+/** SVG year-of-light chart for one spot: 12 bars + measured-day markers. */
+function spotChart(cal12, anchors) {
+  const W2 = 340;
+  const plotL = 24;
+  const plotR = 336;
+  const base = 96;
+  const top = 10;
+  const maxH = Math.max(16, ...cal12);
+  const yOf = (h) => base - ((base - top) * h) / maxH;
+  const bw = (plotR - plotL) / 12;
+  let s = `<svg viewBox="0 0 ${W2} 118" role="img" aria-label="Monthly direct-sun hours">`;
+  // recessive threshold lines: the category boundaries gardeners care about
+  for (const [h, lbl] of [[6, '6h'], [4, ''], [2, '']]) {
+    s += `<line x1="${plotL}" y1="${yOf(h)}" x2="${plotR}" y2="${yOf(h)}" stroke="var(--gridline)" stroke-width="1" stroke-dasharray="3 4"/>`;
+    if (lbl) s += `<text x="${plotL - 3}" y="${yOf(h) + 3}" text-anchor="end" fill="var(--text-muted)">${lbl}</text>`;
+  }
+  for (let m = 0; m < 12; m++) {
+    const h = cal12[m];
+    const x = plotL + m * bw + 1;
+    const y = yOf(h);
+    const cat = categorize(h);
+    s += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${Math.max(1, base - y).toFixed(1)}" rx="2" fill="var(${CAT_VAR[cat.name]})"><title>${MONTHS[m]} — ${h.toFixed(1)} h (${cat.name})</title></rect>`;
+    s += `<text x="${(x + bw / 2 - 1).toFixed(1)}" y="${base + 12}" text-anchor="middle" fill="var(--text-muted)">${MONTH_ABBR[m]}</text>`;
+  }
+  // measured days: ringed markers + direct labels (the ground truth)
+  for (const a of anchors) {
+    const x = plotL + (a.month - 1) * bw + bw / 2;
+    const y = yOf(a.hours);
+    s += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="var(--path-today)" stroke="var(--surface-1)" stroke-width="2"><title>measured: ${a.hours.toFixed(1)} h</title></circle>`;
+    s += `<text x="${x.toFixed(1)}" y="${(y - 7).toFixed(1)}" text-anchor="middle" fill="var(--text-secondary)" font-weight="600">${a.hours.toFixed(1)}</text>`;
+  }
+  return `${s}</svg>`;
+}
+
+function renderSpots() {
+  const list = $('spotList');
+  if (!list) return;
+  $('spotsHint').style.display = state.checks.length ? 'none' : '';
+  list.innerHTML = state.checks
+    .map((check) => {
+      const pos = pinPos(check);
+      const cal12 = calibrated12At(pos.x, pos.y);
+      const anchors = checkAnchors(check);
+      const months = growingMonths();
+      const seasonMin = Math.min(...months.map((m) => cal12[m - 1]));
+      const cat = categorize(seasonMin);
+      const when = new Date(check.when);
+      const v = pinVerdict(check);
+      const agree = v.rows.length ? (v.ok ? ' · matches the sketch ✓' : ' · sketch disagrees ≠') : '';
+      return `<div class="spot" data-when="${check.when}">
+        <div class="head"><strong>${check.name || 'Spot'}</strong>
+          <span class="when">measured ${when.toLocaleDateString()}${agree}</span>
+          <button class="del" data-delspot="${check.when}" title="Remove this measurement">✕</button></div>
+        <span class="cat"><span class="swatch" style="background:var(${CAT_VAR[cat.name]})"></span>
+          ${cat.name} all season — at least ${seasonMin.toFixed(1)} h/day</span>
+        ${spotChart(cal12, anchors)}
+        <div class="plants">Happy here: ${PLANTS[cat.name]}.</div>
+      </div>`;
+    })
+    .join('');
+  list.querySelectorAll('[data-delspot]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      // arChecks is shared with ar.js: read-modify-write, never a snapshot
+      const saved = readSaved();
+      if (Array.isArray(saved.arChecks)) {
+        saved.arChecks = saved.arChecks.filter((c) => c.when !== btn.dataset.delspot);
+      }
+      if (saved.scene?.pins) delete saved.scene.pins[btn.dataset.delspot];
+      localStorage.setItem('sun-garden', JSON.stringify(saved));
+      loadSaved();
+      recompute();
+    }),
+  );
 }
 
 // ---------------------------------------------------------- hit testing
@@ -958,8 +1138,11 @@ canvas.addEventListener('pointerup', (ev) => {
       const c = cellAt(pending.pt.x, pending.pt.y);
       if (c) {
         const h = c.hours[state.month - 1];
+        const seasonMin = Math.min(...growingMonths().map((m) => c.hours[m - 1]));
+        const cat = categorize(seasonMin);
         $('readout').textContent =
-          `${MONTHS[state.month - 1]} at this spot: ${h.toFixed(1)} h direct sun — ${categorize(h).name}.`;
+          `${MONTHS[state.month - 1]} here: ${h.toFixed(1)} h direct sun. ` +
+          `${cat.name} through the season — happy here: ${PLANTS[cat.name]}.`;
       }
     }
     pending = null;
@@ -1073,13 +1256,26 @@ $('timeSlider').addEventListener('input', () => {
 
 // ------------------------------------------------------------------ boot
 
+$('editBtn').addEventListener('click', () => {
+  state.editing = !state.editing;
+  document.body.classList.toggle('editing', state.editing);
+  $('editBtn').classList.toggle('active', state.editing);
+  if (state.editing) {
+    setTool(state.obstacles.length ? 'select' : 'building');
+  } else {
+    setTool('select');
+    state.selected = -1;
+    showEditPanel();
+    $('readout').textContent = 'Your yard, colored by direct sun. Tap anywhere for that spot’s light.';
+  }
+});
+
 loadSaved();
 $('monthSlider').value = state.month;
 updateMonthOut();
 updateTimeOut();
-$('locLabel').textContent = `📍 ${state.lat.toFixed(3)}, ${state.lon.toFixed(3)} (set on the tracer page)`;
 updateSatUi();
-setTool(state.obstacles.length ? 'select' : 'building');
+setTool('select'); // the default view is answers; drawing lives behind ✏️ Edit
 recompute();
 resize();
 window.addEventListener('resize', resize);
@@ -1106,4 +1302,6 @@ window.__mapDebug = {
   },
   basemap: () => ({ z: lastTileZoom, tiles: [...tileCache.keys()] }),
   worldPx,
+  calibrated12At,
+  setFilter,
 };

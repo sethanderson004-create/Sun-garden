@@ -15,9 +15,9 @@
  *   frame; we project world points with d = Rᵀ·v and a pinhole model.
  */
 
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=15';
-import { sunPathForDay, categorize } from './sunhours.js?v=15';
-import { sightGroundPoint, sightHeight, spanWidth, gpsToScene, mergeSighting } from './survey.js?v=15';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=16';
+import { sunPathForDay, categorize } from './sunhours.js?v=16';
+import { sightGroundPoint, sightHeight, spanWidth, gpsToScene, mergeSighting } from './survey.js?v=16';
 
 const $ = (id) => document.getElementById(id);
 const cssVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
@@ -510,8 +510,8 @@ function renderChips() {
     $('advice').style.display = '';
     $('advice').innerHTML =
       `<strong style="color:var(${CAT_VARS[cat.name]})">${cat.name}</strong> — about ${res.hours.toFixed(1)} h direct sun here today.<br>` +
-      `Happy here: ${ADVICE[cat.name]}.<br><small style="color:rgba(255,255,255,.6)">Leafy trees are counted as they look right now — the ` +
-      `<a href="./index.html" style="color:inherit">skyline tracer</a> can model them bare in winter.</small>`;
+      `Happy here: ${ADVICE[cat.name]}.<br><small style="color:rgba(255,255,255,.6)">💾 Save this spot and it joins the ` +
+      `<a href="./index.html" style="color:inherit">sun map</a> — the whole yard re-shades around your measurements.</small>`;
   }
 }
 
@@ -574,7 +574,7 @@ function persistCheck(entry) {
     const saved = JSON.parse(localStorage.getItem('sun-garden') || 'null') || {};
     saved.arChecks = [...(Array.isArray(saved.arChecks) ? saved.arChecks : []), entry].slice(-50);
     localStorage.setItem('sun-garden', JSON.stringify(saved));
-    toast(`Saved “${entry.name}” ✓ — it's listed on the tracer page.`, 3600);
+    toast(`Saved “${entry.name}” ✓ — it's on your sun map now.`, 3600);
     savedThisSweep = true;
   } catch {
     toast('Could not save — browser storage is unavailable.');
