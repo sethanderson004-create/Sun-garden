@@ -10,8 +10,8 @@
  * dates (the 21st), same sampling window, same lit test.
  */
 
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=7'; // ?v= must match app.js — see cache-busting note there
-import { skylineLayersForPoint, inLeaf } from './scene.js?v=7';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=8'; // ?v= must match app.js — see cache-busting note there
+import { skylineLayersForPoint, inLeaf } from './scene.js?v=8';
 
 /**
  * Sun positions for the 21st of every month of `year` at (lat, lon), sampled

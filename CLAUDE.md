@@ -146,20 +146,22 @@ engine features, test physical invariants (e.g. "blocking never adds sun",
 
 ## Status & near-term roadmap (as of 2026-07-03)
 
-**Garden map (top-down shadow simulator, PLAN.md Phase 2) in progress** on
-branch `claude/sungarden-full-map-plan-pw2xlm`: M1 (scene engine) and M2
-(sun grid) are done and tested — sketch → per-cell skylines → 12-month
-heatmap data. **M3 is next**: the visible feature, `map.html` + `src/map.js`
-(third page, mirroring the ar.html pattern: imports engine only, owns its own
-localStorage key — `scene` — under the storage-ownership rule below). Agreed
-UX (from product discussion): scale set by drawing a line over a known length;
-optional satellite-screenshot trace-over (same flow as pano loading, no maps
-API); heatmap renders live while sketching using the validated category ramp;
-month slider (free — cells carry all 12 months) plus a time-of-day "shadow
-movie" scrubber (instantaneous skyline test per cell); relatable height
-presets ("1 story / 2 stories", small/medium/large tree) with tap-to-edit
-instead of forced numeric input. **M4 after**: saved `arChecks` appear as
-draggable pins showing measured-vs-predicted hours to calibrate the sketch.
+**Garden map (top-down shadow simulator, PLAN.md Phase 2) built through M3**
+on branch `claude/sungarden-full-map-plan-pw2xlm` (PR #10): M1 scene engine +
+M2 sun grid (tested), and M3 the UI — `map.html` + `src/map.js` (third page,
+ar.html pattern: imports engine only, owns the `scene` localStorage key under
+the storage-ownership rule below; Playwright-verified: draw/edit/move tools,
+persistence merge, month slider, shadow movie, scale tool). UX as agreed:
+scale set by drawing a line over a known length; optional
+satellite-screenshot trace-over (view-fit image, never persisted); heatmap
+recomputes live on sketch edits (draft 20×20 grid while dragging, 48×48 on
+release; month slider is free — cells carry all 12 months); time-of-day
+"shadow movie" via `blockedElevationAt` (one exact ray per cell, no grid);
+height presets ("1 story", small/medium/large tree) with tap-to-edit.
+Not yet field-tested on a phone. **M4 next**: saved `arChecks` appear as
+draggable pins on the map showing measured-vs-predicted hours to calibrate
+the sketch. Known rough edges: no undo on the map page; tree default is
+evergreen (conservative); building rectangles are axis-aligned only.
 
 Field-verified on the owner's iPhone 12 Pro: pano loading/zoom/tracing works;
 AR arcs are steady while panning (after the motion-gated compass + align-to-
