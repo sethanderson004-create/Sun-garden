@@ -23,7 +23,7 @@
  * azimuth bins, elevations clamped to 0–85), solid + leafy.
  */
 
-import { treeProfile, paintProfile } from './obstacles.js?v=8'; // ?v= must match app.js — see cache-busting note there
+import { treeProfile, paintProfile } from './obstacles.js?v=9'; // ?v= must match app.js — see cache-busting note there
 
 const RAD = Math.PI / 180;
 const MAX_EL = 85;

@@ -19,10 +19,10 @@
  * at write time; lat/lon belong to app.js and are read, never written.
  */
 
-import { sunSampleTable, sunHoursGrid } from './sungrid.js?v=8';
-import { blockedElevationAt, inLeaf } from './scene.js?v=8';
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=8';
-import { categorize } from './sunhours.js?v=8';
+import { sunSampleTable, sunHoursGrid, monthlyHoursForLayers } from './sungrid.js?v=9';
+import { skylineLayersForPoint, blockedElevationAt, inLeaf } from './scene.js?v=9';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=9';
+import { categorize } from './sunhours.js?v=9';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('map');
@@ -59,6 +59,9 @@ const state = {
   movie: false,
   movieMin: 0, // minutes from solar noon
   bg: null, // background Image (never persisted)
+  checks: [], // saved AR spot checks (owned by ar.js — read-only here)
+  pins: {}, // user-corrected pin positions, keyed by check.when (ours, in scene)
+  pinSel: null, // `when` of the selected pin
 };
 const year = new Date().getFullYear();
 
@@ -77,7 +80,9 @@ function loadSaved() {
   if (saved.scene) {
     if (Number.isFinite(saved.scene.viewSize)) state.viewSize = saved.scene.viewSize;
     if (Array.isArray(saved.scene.obstacles)) state.obstacles = saved.scene.obstacles;
+    if (saved.scene.pins && typeof saved.scene.pins === 'object') state.pins = saved.scene.pins;
   }
+  state.checks = Array.isArray(saved.arChecks) ? saved.arChecks : [];
 }
 
 function persist() {
@@ -86,7 +91,7 @@ function persist() {
     'sun-garden',
     JSON.stringify({
       ...readSaved(),
-      scene: { viewSize: state.viewSize, obstacles: state.obstacles },
+      scene: { viewSize: state.viewSize, obstacles: state.obstacles, pins: state.pins },
     }),
   );
 }
@@ -152,6 +157,97 @@ function cellAt(x, y) {
   const row = Math.floor((y - g.y0) / g.cellSize);
   if (col < 0 || row < 0 || col >= g.cols || row >= g.rows) return null;
   return cells.list[row * g.cols + col];
+}
+
+// ---------------------------------------------------- AR spot-check pins
+
+// A saved AR sweep is ground truth measured while standing in the garden;
+// the sketch is a model. Each check becomes a pin showing measured vs
+// predicted hours — agreement means the sketch can be trusted everywhere,
+// a mismatch says "something near here is drawn wrong". GPS places the pin
+// initially (only good to a few meters), dragging corrects it; corrections
+// live in scene.pins keyed by the check's `when` (arChecks itself belongs
+// to ar.js and is never written here).
+
+const M_PER_DEG = 110574; // meters per degree of latitude (lon scales by cos)
+const PIN_TOL_H = 1.25; // measured-vs-predicted agreement threshold, hours
+const MIN_COVERAGE = 0.4; // sweeps that skipped most of an arc don't judge
+
+function pinPos(check) {
+  const fixed = state.pins[check.when];
+  if (fixed && Number.isFinite(fixed.x) && Number.isFinite(fixed.y)) return fixed;
+  return {
+    x: (check.lon - state.lon) * M_PER_DEG * Math.cos((state.lat * Math.PI) / 180),
+    y: (check.lat - state.lat) * M_PER_DEG,
+  };
+}
+
+/** Months a sweep-day label is comparable against (ar.js's day set). */
+function labelMonths(label, when) {
+  if (label === 'Jun 21') return [6];
+  if (label === 'Dec 21') return [12];
+  if (label === 'Mar / Sep 21') return [3, 9]; // foliage at capture unknown — either may match
+  if (label === 'Today') {
+    const m = new Date(when).getMonth() + 1;
+    return Number.isFinite(m) ? [m] : [];
+  }
+  return [];
+}
+
+/** Measured-vs-predicted rows for one check at its pin position. */
+function pinVerdict(check) {
+  table ??= sunSampleTable(state.lat, state.lon, year);
+  const pos = pinPos(check);
+  const predicted = monthlyHoursForLayers(
+    skylineLayersForPoint(state.obstacles, pos.x, pos.y),
+    table,
+  );
+  const rows = [];
+  for (const d of check.days || []) {
+    if (d.coverage < MIN_COVERAGE) continue;
+    const months = labelMonths(d.label, check.when);
+    if (!months.length) continue;
+    // compare against the closest candidate month (equinox label spans two)
+    const model = months
+      .map((m) => predicted[m - 1])
+      .reduce((a, b) => (Math.abs(b - d.hours) < Math.abs(a - d.hours) ? b : a));
+    rows.push({ label: d.label, measured: d.hours, predicted: model, delta: model - d.hours });
+  }
+  return { pos, rows, ok: rows.length > 0 && rows.every((r) => Math.abs(r.delta) <= PIN_TOL_H) };
+}
+
+function drawPins() {
+  for (const check of state.checks) {
+    const v = pinVerdict(check);
+    const px = xPx(v.pos.x);
+    const py = yPx(v.pos.y);
+    const r = Math.max(6, W / 110);
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fillStyle = cssVar(v.rows.length ? (v.ok ? '--path-equinox' : '--path-today') : '--text-muted');
+    ctx.fill();
+    ctx.lineWidth = Math.max(2, W / 400);
+    ctx.strokeStyle = check.when === state.pinSel ? cssVar('--accent') : cssVar('--surface-1');
+    ctx.stroke();
+    ctx.fillStyle = cssVar('--text-primary');
+    ctx.font = `600 ${Math.max(10, W / 60)}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(`${v.ok || !v.rows.length ? '☀' : '≠'} ${check.name}`, px, py - r - 5);
+  }
+}
+
+function describePin(check) {
+  const v = pinVerdict(check);
+  if (!v.rows.length) {
+    $('readout').textContent = `“${check.name}”: sweep coverage too low to compare. Drag the pin to where you stood.`;
+    return;
+  }
+  const parts = v.rows.map(
+    (r) => `${r.label}: measured ${r.measured.toFixed(1)} h, sketch says ${r.predicted.toFixed(1)} h`,
+  );
+  $('readout').textContent = v.ok
+    ? `“${check.name}” agrees with the sketch ✓ — ${parts.join(' · ')}.`
+    : `“${check.name}” disagrees — ${parts.join(' · ')}. Drag the pin to where you stood, or fix nearby heights until they match.`;
 }
 
 // ------------------------------------------------------------- drawing
@@ -244,6 +340,7 @@ function draw() {
   }
 
   state.obstacles.forEach((ob, i) => drawObstacle(ob, i === state.selected));
+  drawPins();
 
   // pending gesture previews
   ctx.strokeStyle = cssVar('--accent');
@@ -439,6 +536,22 @@ canvas.addEventListener('pointerdown', (ev) => {
     pending.cursor = pt;
     draw();
   } else if (state.tool === 'select') {
+    // pins sit on top of everything, so try them first
+    const tol = (14 / (canvas.clientWidth || 640)) * state.viewSize;
+    const pin = state.checks.find((c) => {
+      const p = pinPos(c);
+      return Math.hypot(p.x - pt.x, p.y - pt.y) <= tol;
+    });
+    if (pin) {
+      state.pinSel = pin.when;
+      state.selected = -1;
+      showEditPanel();
+      describePin(pin);
+      pending = { kind: 'movepin', when: pin.when, moved: false };
+      draw();
+      return;
+    }
+    state.pinSel = null;
     const hit = hitTest(pt);
     state.selected = hit;
     showEditPanel();
@@ -467,6 +580,10 @@ canvas.addEventListener('pointermove', (ev) => {
       pending.moved = true;
       recompute(true);
     }
+  } else if (pending.kind === 'movepin') {
+    state.pins[pending.when] = { x: pt.x, y: pt.y };
+    pending.moved = true;
+    draw();
   } else if (pending.kind === 'polyline') {
     pending.cursor = pt;
     draw();
@@ -519,6 +636,13 @@ canvas.addEventListener('pointerup', () => {
     if (pending.moved) {
       persist();
       recompute();
+    }
+    pending = null;
+  } else if (pending.kind === 'movepin') {
+    if (pending.moved) {
+      persist();
+      describePin(state.checks.find((c) => c.when === pending.when));
+      draw();
     }
     pending = null;
   }
@@ -614,4 +738,8 @@ window.__mapDebug = {
   recompute,
   setTool,
   hoursAt: (x, y) => cellAt(x, y)?.hours[state.month - 1],
+  pinVerdict: (i) => {
+    const { pos, rows, ok } = pinVerdict(state.checks[i]);
+    return { pos, ok, rows };
+  },
 };

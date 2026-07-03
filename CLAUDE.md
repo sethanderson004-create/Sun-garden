@@ -158,9 +158,14 @@ recomputes live on sketch edits (draft 20×20 grid while dragging, 48×48 on
 release; month slider is free — cells carry all 12 months); time-of-day
 "shadow movie" via `blockedElevationAt` (one exact ray per cell, no grid);
 height presets ("1 story", small/medium/large tree) with tap-to-edit.
-Not yet field-tested on a phone. **M4 next**: saved `arChecks` appear as
-draggable pins on the map showing measured-vs-predicted hours to calibrate
-the sketch. Known rough edges: no undo on the map page; tree default is
+**M4 done too**: saved `arChecks` render as calibration pins on the map —
+GPS-placed (draggable to correct; overrides live in `scene.pins` keyed by
+`check.when`, so ar.js's `arChecks` is never written), green ☀ when measured
+hours match the sketch's prediction at that point within 1.25 h, orange ≠
+otherwise; sweep rows under 0.4 coverage don't judge; the `Mar / Sep 21`
+label compares against whichever equinox month fits better (capture-time
+foliage is unknown). Whole garden-map feature not yet field-tested on a
+phone. Known rough edges: no undo on the map page; tree default is
 evergreen (conservative); building rectangles are axis-aligned only.
 
 Field-verified on the owner's iPhone 12 Pro: pano loading/zoom/tracing works;
