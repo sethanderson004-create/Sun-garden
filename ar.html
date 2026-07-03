@@ -51,6 +51,11 @@
     padding: 9px 12px; font-size: 13.5px;
   }
   #surveyPanel .mini { padding: 8px 10px; font-size: 13.5px; font-weight: 500; }
+  #surveyPanel label.chip { flex: 1; justify-content: center; }
+  #surveyPanel input {
+    width: 58px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 6px; color: #fff; font: inherit; padding: 2px 6px;
+  }
   #headingReadout { font-variant-numeric: tabular-nums; }
 
   #panel {
@@ -123,11 +128,19 @@
   <div id="advice"></div>
   <div id="surveyPanel">
     <div id="surveyPrompt"></div>
+    <div class="btns" id="leafRow" style="display:none">
+      <button id="leafYes">🍂 Loses leaves in winter</button>
+      <button id="leafNo">🌲 Evergreen</button>
+    </div>
     <div class="btns">
       <button id="surveyKindTree" class="mini">🌳 Tree</button>
       <button id="surveyKindFence" class="mini">🚧 Fence</button>
       <button id="surveyMoved" class="mini" title="Refix your standpoint after walking">📍 I moved</button>
       <button id="surveyAgain" class="mini" disabled title="Measure the last tree again from a new spot — sightings average">⟳ Again</button>
+    </div>
+    <div class="btns" id="surveyMetaRow">
+      <label class="chip">👁 eye height <input id="eyeHeightInput" type="number" step="0.05" min="0.8" max="2.2" /> m</label>
+      <label class="chip" id="fenceHeightWrap" style="display:none">🚧 height <input id="fenceHeight" type="number" value="1.8" step="0.1" min="0.3" max="6" /> m</label>
     </div>
     <div class="btns">
       <button id="surveyMark" class="primary">⊕ Mark</button>
@@ -160,6 +173,6 @@
   </div>
 </div>
 
-<script type="module" src="src/ar.js?v=14"></script>
+<script type="module" src="src/ar.js?v=15"></script>
 </body>
 </html>

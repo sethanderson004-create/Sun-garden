@@ -15,9 +15,9 @@
  *   frame; we project world points with d = Rᵀ·v and a pinhole model.
  */
 
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=14';
-import { sunPathForDay, categorize } from './sunhours.js?v=14';
-import { sightGroundPoint, sightHeight, spanWidth, gpsToScene, mergeSighting } from './survey.js?v=14';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=15';
+import { sunPathForDay, categorize } from './sunhours.js?v=15';
+import { sightGroundPoint, sightHeight, spanWidth, gpsToScene, mergeSighting } from './survey.js?v=15';
 
 const $ = (id) => document.getElementById(id);
 const cssVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
@@ -402,8 +402,18 @@ function frame() {
   const { az, el } = centerDirection();
   $('headingReadout').textContent =
     `${COMPASS_NAMES[Math.round(az / 22.5) % 16]} ${Math.round(az)}° · ${el >= 0 ? '↑' : '↓'}${Math.abs(Math.round(el))}°${state.manualLook ? ' · drag' : ''}`;
+
+  // camera watchdog: iOS pauses the stream around modal dialogs, permission
+  // sheets, and app switches, and doesn't always resume it — the overlay
+  // keeps animating over a frozen frame. Nudge it back once a second.
+  const nowMs = performance.now();
+  if (nowMs - lastPlayNudge > 1000) {
+    lastPlayNudge = nowMs;
+    if (video.srcObject && video.paused) video.play().catch(() => {});
+  }
   requestAnimationFrame(frame);
 }
+let lastPlayNudge = 0;
 
 // ---------------------------------------------------------------- spot check
 
@@ -620,7 +630,6 @@ const survey = {
   taps: [], // collected sightings for the current object
   marks: [], // screen markers {az, el} in compass-model frame
   eyeHeight: 1.6,
-  eyeHeightAsked: false,
   standpoint: { x: 0, y: 0 }, // scene meters relative to the garden origin
   gotFix: false,
   lastTreeId: null, // "⟳ Again" target
@@ -637,17 +646,15 @@ function readSaved() {
 
 {
   const s = readSaved();
-  if (Number.isFinite(s.survey?.eyeHeight)) {
-    survey.eyeHeight = s.survey.eyeHeight;
-    survey.eyeHeightAsked = true;
-  }
+  if (Number.isFinite(s.survey?.eyeHeight)) survey.eyeHeight = s.survey.eyeHeight;
 }
 
 const TREE_STEPS = [
   '🌳 1/4 — aim the crosshair where the <b>trunk meets the ground</b>, tap ⊕ Mark',
   '🌳 2/4 — aim at the very <b>top</b> of the tree',
   '🌳 3/4 — aim at the <b>left edge</b> of the crown',
-  '🌳 4/4 — aim at the <b>right edge</b> — Mark saves it',
+  '🌳 4/4 — aim at the <b>right edge</b> and Mark',
+  '🌳 measured! Does it lose its leaves in winter?',
 ];
 
 /** True compass azimuth of the crosshair (undo the align-to-sun offset). */
@@ -666,6 +673,8 @@ function refreshSurveyUi() {
   $('surveyKindTree').classList.toggle('active', survey.kind === 'tree');
   $('surveyKindFence').classList.toggle('active', survey.kind === 'fence');
   $('surveyAgain').disabled = !survey.lastTreeId || survey.kind !== 'tree';
+  $('leafRow').style.display = survey.kind === 'tree' && survey.step === 4 ? 'flex' : 'none';
+  $('fenceHeightWrap').style.display = survey.kind === 'fence' ? 'flex' : 'none';
 }
 
 function startObject(resightId = null) {
@@ -716,10 +725,12 @@ function persistSurveyObstacle(ob, resightId) {
   return merged;
 }
 
-function finishTree() {
+// No prompt()/confirm() anywhere in the survey: on iOS a modal dialog
+// pauses the camera stream and it often stays frozen after dismissal
+// (field-reported). The leaf question is an in-page button row instead.
+function completeTree(deciduous) {
   const [base, top, edgeA, edgeB] = survey.taps;
   const crownWidth = Math.max(1, spanWidth(base.distance, edgeA.az, edgeB.az));
-  const deciduous = confirm('Does this tree drop its leaves in winter?\n\nOK = yes (deciduous) · Cancel = evergreen');
   const measurement = {
     type: 'tree',
     id: `svy-${Date.now()}`,
@@ -739,6 +750,9 @@ function finishTree() {
   );
   startObject();
 }
+
+$('leafYes').addEventListener('click', () => completeTree(true));
+$('leafNo').addEventListener('click', () => completeTree(false));
 
 $('surveyMark').addEventListener('click', () => {
   const { az, el } = surveyDirection();
@@ -760,11 +774,13 @@ $('surveyMark').addEventListener('click', () => {
     survey.taps.push({ height: h, az, el });
     survey.marks.push({ az: centerDirection().az, el });
     survey.step = 2;
+  } else if (survey.step === 4) {
+    toast('Answer the leaf question below to finish this tree.');
+    return;
   } else {
     survey.taps.push({ az, el });
     survey.marks.push({ az: centerDirection().az, el });
-    if (survey.step === 2) survey.step = 3;
-    else return finishTree();
+    survey.step = survey.step === 2 ? 3 : 4; // 4 = awaiting the leaf answer
   }
   refreshSurveyUi();
 });
@@ -785,8 +801,11 @@ $('surveyDone').addEventListener('click', () => {
     toast('Mark at least two fence posts first.');
     return;
   }
-  const h = parseFloat(prompt('Fence height in meters:', '1.8'));
-  if (!Number.isFinite(h) || h <= 0) return;
+  const h = parseFloat($('fenceHeight').value);
+  if (!Number.isFinite(h) || h <= 0) {
+    toast('Set the fence height (the 🚧 field below) first.');
+    return;
+  }
   persistSurveyObstacle(
     {
       type: 'fence',
@@ -816,19 +835,26 @@ $('surveyAgain').addEventListener('click', () => {
   refreshSurveyUi();
 });
 
+// eye height lives as an always-visible field (never a dialog — see above);
+// tweak it any time, it persists under the survey key
+$('eyeHeightInput').value = survey.eyeHeight;
+$('eyeHeightInput').addEventListener('change', () => {
+  const h = parseFloat($('eyeHeightInput').value);
+  if (Number.isFinite(h) && h >= 0.8 && h <= 2.2) {
+    survey.eyeHeight = h;
+    const saved = readSaved();
+    saved.survey = { ...(saved.survey || {}), eyeHeight: h };
+    try {
+      localStorage.setItem('sun-garden', JSON.stringify(saved));
+    } catch { /* eye height just won't stick */ }
+  } else {
+    $('eyeHeightInput').value = survey.eyeHeight;
+  }
+});
+
 $('surveyBtn').addEventListener('click', () => {
   survey.on = !survey.on;
   if (survey.on) {
-    if (!survey.eyeHeightAsked) {
-      const h = parseFloat(prompt('How high do you hold the phone? Your eye height, in meters:', String(survey.eyeHeight)));
-      if (Number.isFinite(h) && h > 0.8 && h < 2.5) survey.eyeHeight = h;
-      survey.eyeHeightAsked = true;
-      const saved = readSaved();
-      saved.survey = { ...(saved.survey || {}), eyeHeight: survey.eyeHeight };
-      try {
-        localStorage.setItem('sun-garden', JSON.stringify(saved));
-      } catch { /* eye height just won't stick */ }
-    }
     if (state.sweeping) $('sweepBtn').click();
     surveyFix(true);
     startObject();

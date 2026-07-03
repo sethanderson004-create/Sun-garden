@@ -88,7 +88,12 @@ The codebase is split into a pure computational engine (tested) and a UI layer
   standpoint (walk close to each object — that's where the angles are
   sharp); "⟳ Again" re-sights the last tree and `mergeSighting` averages.
   True azimuth for sightings is `centerDirection().az − state.azOffset`
-  (undoing align-to-sun; manual look has no offset).
+  (undoing align-to-sun; manual look has no offset). **Never use
+  prompt()/confirm()/alert() while the camera runs** — iOS pauses the
+  stream around modal dialogs and often leaves it frozen (field-reported);
+  survey inputs are in-page (leaf-question button row, eye/fence height
+  fields), a 1 s watchdog in frame() re-plays a paused video, and the
+  Playwright suite fails on any unexpected dialog.
   Reads/writes the same `"sun-garden"` localStorage key as app.js (lat/lon
   shared; the 💾 Save button appends sweeps to `arChecks` with a fresh GPS
   standpoint, rendered/deleted as a card by app.js). Survey owns the

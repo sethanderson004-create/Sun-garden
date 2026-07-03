@@ -19,10 +19,10 @@
  * at write time; lat/lon belong to app.js and are read, never written.
  */
 
-import { sunSampleTable, sunHoursGrid, monthlyHoursForLayers } from './sungrid.js?v=14';
-import { skylineLayersForPoint, blockedElevationAt, inLeaf } from './scene.js?v=14';
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=14';
-import { categorize } from './sunhours.js?v=14';
+import { sunSampleTable, sunHoursGrid, monthlyHoursForLayers } from './sungrid.js?v=15';
+import { skylineLayersForPoint, blockedElevationAt, inLeaf } from './scene.js?v=15';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=15';
+import { categorize } from './sunhours.js?v=15';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('map');
