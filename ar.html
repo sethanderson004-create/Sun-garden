@@ -42,6 +42,15 @@
     border: 1px solid rgba(255,255,255,0.14); border-radius: 999px;
     padding: 6px 12px; font-size: 13px; color: #fff; text-decoration: none;
   }
+  button.pill { flex: none; font-weight: 500; cursor: pointer; }
+  button.pill.active { background: var(--accent); border-color: var(--accent); }
+  #surveyPanel { display: none; flex-direction: column; gap: 8px; }
+  #surveyPrompt {
+    background: var(--glass); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.14); border-radius: 12px;
+    padding: 9px 12px; font-size: 13.5px;
+  }
+  #surveyPanel .mini { padding: 8px 10px; font-size: 13.5px; font-weight: 500; }
   #headingReadout { font-variant-numeric: tabular-nums; }
 
   #panel {
@@ -105,13 +114,28 @@
 
 <div class="topbar">
   <a class="pill" href="./index.html">✎ Skyline tracer</a>
+  <button class="pill" id="surveyBtn" title="Measure trees and fences by aiming at them — they land on the garden map">📐 Survey</button>
   <span class="pill" id="headingReadout">—</span>
 </div>
 
 <div id="panel">
   <div id="chips"></div>
   <div id="advice"></div>
-  <div class="btns">
+  <div id="surveyPanel">
+    <div id="surveyPrompt"></div>
+    <div class="btns">
+      <button id="surveyKindTree" class="mini">🌳 Tree</button>
+      <button id="surveyKindFence" class="mini">🚧 Fence</button>
+      <button id="surveyMoved" class="mini" title="Refix your standpoint after walking">📍 I moved</button>
+      <button id="surveyAgain" class="mini" disabled title="Measure the last tree again from a new spot — sightings average">⟳ Again</button>
+    </div>
+    <div class="btns">
+      <button id="surveyMark" class="primary">⊕ Mark</button>
+      <button id="surveyUndo">↩ Undo</button>
+      <button id="surveyDone">✓ Save</button>
+    </div>
+  </div>
+  <div class="btns" id="sweepBtns">
     <button id="alignBtn" title="Point the crosshair at the sun, then tap">☀ Align to sun</button>
     <button id="sweepBtn" class="primary">▶ Spot check</button>
     <button id="saveBtn" disabled title="Log this spot check (results + location)">💾 Save</button>
@@ -136,6 +160,6 @@
   </div>
 </div>
 
-<script type="module" src="src/ar.js?v=13"></script>
+<script type="module" src="src/ar.js?v=14"></script>
 </body>
 </html>
