@@ -19,10 +19,10 @@
  * at write time; lat/lon belong to app.js and are read, never written.
  */
 
-import { sunSampleTable, sunHoursGrid, monthlyHoursForLayers } from './sungrid.js?v=11';
-import { skylineLayersForPoint, blockedElevationAt, inLeaf } from './scene.js?v=11';
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=11';
-import { categorize } from './sunhours.js?v=11';
+import { sunSampleTable, sunHoursGrid, monthlyHoursForLayers } from './sungrid.js?v=12';
+import { skylineLayersForPoint, blockedElevationAt, inLeaf } from './scene.js?v=12';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=12';
+import { categorize } from './sunhours.js?v=12';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('map');
@@ -205,6 +205,46 @@ function worldPx(lat, lon, z) {
   };
 }
 
+// Beyond its real imagery Esri sometimes 404s and sometimes serves flat
+// placeholder tiles with HTTP 200 (field-observed: they painted over the
+// picture at planning zooms). Both must read as "missing" so the ancestor
+// fallback engages: a probe canvas checks per-channel spread — real
+// imagery is never flat, placeholders are. Isolated flat tiles (a lake,
+// a big roof) just fall back individually; only a run of them at one
+// level steps the whole layer down (stops doomed re-requests on pan).
+const blankCountAt = {};
+let probeCtx = null;
+
+function looksBlank(img) {
+  try {
+    if (!probeCtx) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 8;
+      probeCtx = c.getContext('2d', { willReadFrequently: true });
+    }
+    probeCtx.drawImage(img, 0, 0, 8, 8);
+    const d = probeCtx.getImageData(0, 0, 8, 8).data;
+    const min = [255, 255, 255];
+    const max = [0, 0, 0];
+    for (let i = 0; i < d.length; i += 4) {
+      for (let ch = 0; ch < 3; ch++) {
+        if (d[i + ch] < min[ch]) min[ch] = d[i + ch];
+        if (d[i + ch] > max[ch]) max[ch] = d[i + ch];
+      }
+    }
+    return max[0] - min[0] + (max[1] - min[1]) + (max[2] - min[2]) < 12;
+  } catch {
+    return false; // tainted canvas (no CORS) — assume real imagery
+  }
+}
+
+function tileMissing(t, z) {
+  t.ok = false;
+  blankCountAt[z] = (blankCountAt[z] || 0) + 1;
+  if (z > 15 && maxTileZoom >= z && blankCountAt[z] >= 3) maxTileZoom = z - 1;
+  draw();
+}
+
 function tileFor(z, x, y) {
   const key = `${z}/${x}/${y}`;
   let t = tileCache.get(key);
@@ -214,15 +254,12 @@ function tileFor(z, x, y) {
     t.img.crossOrigin = 'anonymous';
     t.img.onload = () => {
       t.ok = true;
-      draw();
+      // flat placeholders only exist past the real imagery — don't probe
+      // wide views, where a genuinely uniform tile (open water) is normal
+      if (z >= 18 && looksBlank(t.img)) tileMissing(t, z);
+      else draw();
     };
-    t.img.onerror = () => {
-      // this zoom isn't published for this area — step the whole layer down
-      if (z > 15 && maxTileZoom >= z) {
-        maxTileZoom = z - 1;
-        draw();
-      }
-    };
+    t.img.onerror = () => tileMissing(t, z);
     t.img.src = TILE_URL(z, x, y);
     tileCache.set(key, t);
   }
@@ -614,6 +651,64 @@ $('deleteBtn').addEventListener('click', () => {
   recompute();
 });
 
+// ---------------------------------------------- pinch / wheel navigation
+
+// Phone planning reality: you draw zoomed-in, so navigation must work in
+// every tool — one finger draws, two fingers pinch-zoom and pan. A pinch
+// interrupts whatever one-finger gesture was in flight (an in-progress
+// fence polyline is stashed and resumed).
+
+const pointers = new Map(); // active pointerId → client {x, y}
+let fenceStash = null;
+
+function clientToCanvasPx(cx, cy) {
+  const r = canvas.getBoundingClientRect();
+  return { px: ((cx - r.left) / r.width) * W, py: ((cy - r.top) / r.height) * W };
+}
+
+/** Re-center so world point w sits at canvas pixel (px, py). */
+function anchorWorldAt(w, px, py) {
+  state.viewCx = w.x - (px - W / 2) / pxPerM();
+  state.viewCy = w.y + (py - W / 2) / pxPerM();
+}
+
+function beginPinch() {
+  if (pending?.kind === 'polyline') fenceStash = pending;
+  else if (pending?.moved) persist(); // half-finished obstacle/pin drag
+  const [a, b] = [...pointers.values()];
+  const { px, py } = clientToCanvasPx((a.x + b.x) / 2, (a.y + b.y) / 2);
+  pending = {
+    kind: 'pinch',
+    d0: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+    vs0: state.viewSize,
+    w0: { x: xOfPx(px), y: yOfPx(py) },
+  };
+}
+
+function movePinch() {
+  const [a, b] = [...pointers.values()];
+  const d1 = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+  state.viewSize = Math.min(300, Math.max(5, pending.vs0 * (pending.d0 / d1)));
+  // keep the ground that was between the fingers under them
+  const { px, py } = clientToCanvasPx((a.x + b.x) / 2, (a.y + b.y) / 2);
+  anchorWorldAt(pending.w0, px, py);
+  recompute(true);
+}
+
+canvas.addEventListener(
+  'wheel',
+  (ev) => {
+    ev.preventDefault();
+    const { px, py } = clientToCanvasPx(ev.clientX, ev.clientY);
+    const w = { x: xOfPx(px), y: yOfPx(py) };
+    state.viewSize = Math.min(300, Math.max(5, state.viewSize * (ev.deltaY > 0 ? 1.15 : 1 / 1.15)));
+    anchorWorldAt(w, px, py); // zoom about the cursor
+    persist();
+    recompute(true);
+  },
+  { passive: false },
+);
+
 // ------------------------------------------------------------- gestures
 
 function setTool(tool) {
@@ -653,7 +748,15 @@ function finishFence() {
 
 canvas.addEventListener('pointerdown', (ev) => {
   ev.preventDefault();
-  canvas.setPointerCapture(ev.pointerId);
+  try {
+    canvas.setPointerCapture(ev.pointerId);
+  } catch {} // synthetic events (tests) have no real pointer to capture
+  pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (pointers.size === 2) {
+    beginPinch();
+    return;
+  }
+  if (pointers.size > 2 || pending?.kind === 'pinch') return;
   const pt = eventPoint(ev);
   if (state.tool === 'building') pending = { kind: 'rect', a: pt, b: pt };
   else if (state.tool === 'tree') pending = { kind: 'circle', a: pt, b: pt };
@@ -699,6 +802,11 @@ canvas.addEventListener('pointerdown', (ev) => {
 });
 
 canvas.addEventListener('pointermove', (ev) => {
+  if (pointers.has(ev.pointerId)) pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (pending?.kind === 'pinch') {
+    if (pointers.size >= 2) movePinch();
+    return;
+  }
   if (!pending) return;
   const pt = eventPoint(ev);
   if (pending.kind === 'move') {
@@ -734,8 +842,30 @@ canvas.addEventListener('pointermove', (ev) => {
   }
 });
 
-canvas.addEventListener('pointerup', () => {
+canvas.addEventListener('pointercancel', (ev) => {
+  pointers.delete(ev.pointerId);
+  if (pending?.kind === 'pinch') {
+    if (pointers.size < 2) endPinch();
+  } else if (pending && pending.kind !== 'polyline') {
+    pending = null;
+    draw();
+  }
+});
+
+function endPinch() {
+  pending = fenceStash; // resume an interrupted fence, or null
+  fenceStash = null;
+  persist();
+  recompute();
+}
+
+canvas.addEventListener('pointerup', (ev) => {
+  pointers.delete(ev.pointerId);
   if (!pending) return;
+  if (pending.kind === 'pinch') {
+    if (pointers.size < 2) endPinch();
+    return;
+  }
   if (pending.kind === 'rect') {
     const { a, b } = pending;
     pending = null;
@@ -839,7 +969,7 @@ $('satBtn').addEventListener('click', () => {
 });
 
 function zoomBy(factor) {
-  state.viewSize = Math.min(300, Math.max(8, state.viewSize * factor));
+  state.viewSize = Math.min(300, Math.max(5, state.viewSize * factor));
   persist();
   recompute();
 }
