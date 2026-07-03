@@ -177,12 +177,17 @@ resumed), wheel-zoom about the cursor on desktop, ➕/➖ buttons; tile zoom
 self-degrades via `maxTileZoom`, and **over-zoom never blanks the picture**:
 close-in planning zooms exceed Esri's real imagery in most neighborhoods,
 and past it Esri sometimes 404s but sometimes serves flat gray placeholder
-tiles with HTTP 200 (both field-observed) — `looksBlank` probes tiles at
-z≥18 for per-channel flatness and treats placeholders as missing, so
+tiles with HTTP 200 (both field-observed). A flat tile alone proves
+nothing — real close-in tiles are flat too (lawn/asphalt/roof; that false
+positive blanked the map, third field report) — so flat tiles (z≥18) are
+held provisional and judged against the same spot in the nearest loaded
+ancestor (`resolveFlatTile`): texture there ⇒ placeholder (fall back,
+3+ confirmed ⇒ demote the level), flat there too ⇒ real ground (keep).
 `drawTileSlot` renders the matching quarter of the nearest available
-ancestor scaled up (soft, never blank; two real field-reported bugs,
-owner-confirmed 2026-07-03). Playwright fixtures for tile stubs must serve
-*noisy* tiles or the flatness probe correctly rejects them. Tile-layer wiring is Playwright-verified
+ancestor scaled up while unresolved/missing (soft, never blank). Heatmap
+tint over imagery is 0.38 alpha (0.55 read as "lost the picture" on a
+phone). Playwright fixtures for tile stubs must serve *noisy* tiles to
+count as real imagery; map8 covers the flat-but-real yard case. Tile-layer wiring is Playwright-verified
 against stubbed tiles (the sandbox cannot reach Esri); **live imagery needs
 a quick phone/desktop check**. Whole garden-map feature not yet field-tested
 on a phone. Known rough edges: no undo on the map page; tree default is
