@@ -171,12 +171,18 @@ web-mercator pyramid (`156543.03392·cos(lat)/2^z` m/px anchored at the
 garden's lat/lon), so sketch meters and imagery meters agree with no 📏
 calibration — the scale tool is auto-disabled while imagery is live (it
 remains the path for 🛰 screenshots). Drag open ground to pan (view center
-`viewCx/viewCy`, persisted), ➕/➖ zoom; tile zoom self-degrades via
-`maxTileZoom` when a level 404s, and **over-zoom never blanks the picture**:
-close-in planning zooms exceed Esri's published max LOD in most
-neighborhoods, so missing tiles render the matching quarter of the nearest
-available ancestor scaled up (`drawTileSlot` — soft, never blank; this was
-a real field-reported bug, owner-confirmed 2026-07-03). Tile-layer wiring is Playwright-verified
+`viewCx/viewCy`, persisted), **pinch to zoom / two-finger pan in any tool**
+(one finger draws, two navigate — an in-flight fence polyline is stashed and
+resumed), wheel-zoom about the cursor on desktop, ➕/➖ buttons; tile zoom
+self-degrades via `maxTileZoom`, and **over-zoom never blanks the picture**:
+close-in planning zooms exceed Esri's real imagery in most neighborhoods,
+and past it Esri sometimes 404s but sometimes serves flat gray placeholder
+tiles with HTTP 200 (both field-observed) — `looksBlank` probes tiles at
+z≥18 for per-channel flatness and treats placeholders as missing, so
+`drawTileSlot` renders the matching quarter of the nearest available
+ancestor scaled up (soft, never blank; two real field-reported bugs,
+owner-confirmed 2026-07-03). Playwright fixtures for tile stubs must serve
+*noisy* tiles or the flatness probe correctly rejects them. Tile-layer wiring is Playwright-verified
 against stubbed tiles (the sandbox cannot reach Esri); **live imagery needs
 a quick phone/desktop check**. Whole garden-map feature not yet field-tested
 on a phone. Known rough edges: no undo on the map page; tree default is

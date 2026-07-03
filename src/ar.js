@@ -15,8 +15,8 @@
  *   frame; we project world points with d = Rᵀ·v and a pinhole model.
  */
 
-import { solarPosition, solarNoonUtcMs } from './solar.js?v=11';
-import { sunPathForDay, categorize } from './sunhours.js?v=11';
+import { solarPosition, solarNoonUtcMs } from './solar.js?v=12';
+import { sunPathForDay, categorize } from './sunhours.js?v=12';
 
 const $ = (id) => document.getElementById(id);
 const cssVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
