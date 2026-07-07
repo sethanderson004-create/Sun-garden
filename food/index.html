@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bites — voice food log</title>
+<meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Bites" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext x='1' y='13' font-size='13'%3E🍽%3C/text%3E%3C/svg%3E" />
+<style>
+  :root {
+    --page: #f9f9f7;
+    --surface-1: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --gridline: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --bar: #2a78d6;            /* single-series bar hue (validated house ramp) */
+    --accent: #2a78d6;
+    --over: #eb6834;           /* over-goal status, always paired with text */
+    --ok: #1baf7a;
+    --unknown-bg: rgba(235, 104, 52, 0.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #0d0d0d;
+      --surface-1: #1a1a19;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --gridline: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --bar: #3987e5;
+      --accent: #3987e5;
+      --over: #d95926;
+      --ok: #199e70;
+      --unknown-bg: rgba(217, 89, 38, 0.18);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 560px; margin: 0 auto; padding: 20px 16px 56px; }
+  h1 { font-size: 22px; margin: 0 0 2px; }
+  h2 { font-size: 15px; margin: 0 0 8px; }
+  .tagline { color: var(--text-secondary); margin: 0 0 14px; font-size: 14px; }
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+  }
+  .hint { font-size: 13px; color: var(--text-muted); margin: 6px 0 0; }
+  button {
+    padding: 8px 12px; border-radius: 8px; border: 1px solid var(--baseline);
+    background: var(--surface-1); color: var(--text-primary);
+    font: inherit; cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  /* stat tiles */
+  .tiles { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .tile {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px;
+  }
+  .tile .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .tile .l { font-size: 12px; color: var(--text-muted); }
+  .tile.hero { grid-column: 1 / -1; padding: 14px 16px; }
+  .tile.hero .v { font-size: 34px; line-height: 1.15; }
+  .tile.hero .v .goal { font-size: 16px; font-weight: 400; color: var(--text-muted); }
+  .meter {
+    height: 6px; border-radius: 3px; background: var(--gridline);
+    margin-top: 10px; overflow: hidden;
+  }
+  .meter > div { height: 100%; border-radius: 3px; background: var(--accent); }
+  .meter > div.over { background: var(--over); }
+  .status { font-size: 13px; color: var(--text-secondary); margin-top: 6px; }
+  .status .overtext { color: var(--over); font-weight: 600; }
+
+  /* input row */
+  .logrow { display: flex; gap: 8px; }
+  .logrow input {
+    flex: 1; min-width: 0; padding: 10px 12px; font: inherit; font-size: 16px;
+    border: 1px solid var(--baseline); border-radius: 8px;
+    background: var(--page); color: var(--text-primary);
+  }
+  #mic { font-size: 18px; padding: 8px 12px; }
+  #mic.listening { border-color: var(--over); color: var(--over); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 4px var(--unknown-bg); } }
+
+  /* entries */
+  .entry { border-top: 1px solid var(--gridline); padding: 10px 0; }
+  .entry:first-of-type { border-top: none; }
+  .entry .head { display: flex; align-items: baseline; gap: 8px; }
+  .entry .when { color: var(--text-muted); font-size: 12px; min-width: 44px; font-variant-numeric: tabular-nums; }
+  .entry .said { flex: 1; }
+  .entry .kcal { font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .entry .del { border: none; background: none; color: var(--text-muted); padding: 2px 6px; font-size: 14px; }
+  .entry .del.confirm { color: var(--over); font-weight: 600; }
+  .items { margin: 4px 0 0 52px; font-size: 13px; color: var(--text-secondary); }
+  .item { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+  .item .m { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .item.unknown { background: var(--unknown-bg); border-radius: 6px; padding: 4px 8px; margin: 4px 0; }
+  .fixrow { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .fixrow button { padding: 3px 9px; font-size: 13px; border-radius: 999px; }
+  .fixrow input { width: 70px; padding: 3px 8px; font: inherit; font-size: 13px; border: 1px solid var(--baseline); border-radius: 999px; background: var(--page); color: var(--text-primary); }
+  .empty { color: var(--text-muted); padding: 8px 0; }
+
+  /* history chart */
+  #chart { width: 100%; display: block; }
+  #chart .bar { cursor: pointer; }
+  .chartcap { display: flex; justify-content: space-between; align-items: baseline; }
+  .chartcap .streak { font-size: 13px; color: var(--text-secondary); }
+  details.tableview { margin-top: 8px; font-size: 13px; }
+  details.tableview summary { color: var(--text-muted); cursor: pointer; }
+  details.tableview table { border-collapse: collapse; margin-top: 6px; width: 100%; }
+  details.tableview td, details.tableview th {
+    text-align: left; padding: 2px 8px 2px 0; font-variant-numeric: tabular-nums;
+    color: var(--text-secondary); font-weight: 400;
+  }
+
+  .settings { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .settings input {
+    width: 90px; padding: 6px 10px; font: inherit; border: 1px solid var(--baseline);
+    border-radius: 8px; background: var(--page); color: var(--text-primary);
+  }
+  .daybanner {
+    display: none; background: var(--unknown-bg); border-radius: 8px;
+    padding: 8px 12px; margin-bottom: 10px; font-size: 14px;
+  }
+  .daybanner.show { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  footer { color: var(--text-muted); font-size: 13px; margin-top: 24px; }
+  footer a { color: var(--text-secondary); }
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    background: var(--text-primary); color: var(--page); border-radius: 999px;
+    padding: 8px 16px; font-size: 14px; opacity: 0; transition: opacity .25s;
+    pointer-events: none; max-width: 90vw;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🍽 Bites</h1>
+  <p class="tagline">Say what you ate. Rough calories, zero ceremony.</p>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="card">
+    <div class="logrow">
+      <input id="logInput" type="text" autocomplete="off" enterkeyhint="done"
+             placeholder="two eggs and toast with butter…" />
+      <button id="mic" title="Speak your meal" aria-label="Speak your meal">🎤</button>
+      <button id="logBtn" class="primary">Log</button>
+    </div>
+    <p class="hint">Speak or type. Quantities, cups, slices, oz and grams all work.
+      On iPhone you can also tap the keyboard mic and dictate.</p>
+  </div>
+
+  <div class="card">
+    <div class="daybanner" id="dayBanner"></div>
+    <h2 id="entriesTitle">Today</h2>
+    <div id="entries"></div>
+  </div>
+
+  <div class="card">
+    <div class="chartcap">
+      <h2>Last 14 days — calories</h2>
+      <span class="streak" id="streak"></span>
+    </div>
+    <svg id="chart" viewBox="0 0 520 150" role="img" aria-label="Daily calories, last 14 days"></svg>
+    <details class="tableview">
+      <summary>As a table</summary>
+      <table id="historyTable"></table>
+    </details>
+  </div>
+
+  <div class="card settings">
+    <label for="goal">Daily goal</label>
+    <input id="goal" type="number" inputmode="numeric" min="800" max="6000" step="50" />
+    <span class="hint" style="margin:0">kcal</span>
+    <span style="flex:1"></span>
+    <button id="claudeBtn" title="Copy today's log as a prompt for Claude">🧠 Copy day for Claude</button>
+  </div>
+
+  <footer>
+    Estimates are ballpark by design — consistency beats precision.
+    Data stays in this browser (localStorage).
+  </footer>
+</main>
+<div class="toast" id="toast"></div>
+<script type="module" src="./app.js?v=1"></script>
+</body>
+</html>
