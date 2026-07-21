@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Roll the Bones — Call of Cthulhu Investigator Generator</title>
+<meta name="description" content="Generate a Call of Cthulhu 7th-edition investigator: rolled stats, occupation, and a doom-touched backstory." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%230b1a12'/%3E%3Ccircle cx='8' cy='8' r='2.4' fill='%237fd6a1'/%3E%3C/svg%3E" />
+<style>
+  :root {
+    --page: #0a0d0b;
+    --page-2: #0d1512;
+    --surface: #121a16;
+    --surface-2: #16211b;
+    --ink: #e8efe6;
+    --ink-dim: #a9b8ab;
+    --ink-faint: #6f8074;
+    --border: rgba(127, 214, 161, 0.16);
+    --border-strong: rgba(127, 214, 161, 0.34);
+    --eldritch: #7fd6a1;
+    --eldritch-deep: #3f9e6f;
+    --blood: #b5462f;
+    --gold: #d9a441;
+    --violet: #9a7fd6;
+    --shadow: rgba(0, 0, 0, 0.5);
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    font: 16px/1.6 var(--serif);
+    background:
+      radial-gradient(1200px 700px at 50% -12%, rgba(63,158,111,0.10), transparent 60%),
+      radial-gradient(900px 600px at 88% 110%, rgba(154,127,214,0.08), transparent 60%),
+      var(--page);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  main { max-width: 940px; margin: 0 auto; padding: 26px 18px 80px; }
+
+  /* ---- masthead ---- */
+  header.mast { text-align: center; margin: 8px 0 22px; position: relative; }
+  .eye {
+    width: 76px; height: 76px; margin: 0 auto 10px; display: block;
+    filter: drop-shadow(0 0 14px rgba(127,214,161,0.35));
+  }
+  h1 {
+    font-size: clamp(30px, 6vw, 46px); margin: 0; letter-spacing: 0.5px;
+    font-weight: 700; line-height: 1.05;
+    background: linear-gradient(180deg, #eaf6ee, var(--eldritch));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 0 34px rgba(127,214,161,0.18);
+  }
+  .kicker { font-family: var(--sans); text-transform: uppercase; letter-spacing: 3px;
+    font-size: 11px; color: var(--eldritch-deep); margin: 0 0 6px; font-weight: 700; }
+  .sub { color: var(--ink-dim); font-style: italic; margin: 8px auto 0; max-width: 60ch; }
+
+  /* ---- summon bar ---- */
+  .summon { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
+    align-items: center; margin: 22px 0 8px; }
+  button {
+    font: 600 15px/1 var(--sans); cursor: pointer; color: var(--ink);
+    background: var(--surface-2); border: 1px solid var(--border-strong);
+    border-radius: 10px; padding: 11px 16px; transition: transform .08s ease, border-color .2s, background .2s, color .2s;
+  }
+  button:hover { border-color: var(--eldritch); color: var(--eldritch); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: 0.5; pointer-events: none; }
+  button.primary {
+    font-size: 17px; padding: 13px 26px; color: #06120c;
+    background: linear-gradient(180deg, var(--eldritch), var(--eldritch-deep));
+    border-color: transparent; box-shadow: 0 6px 22px rgba(63,158,111,0.35);
+  }
+  button.primary:hover { color: #06120c; filter: brightness(1.06); }
+  button.ghost { background: transparent; }
+  select {
+    font: 15px/1 var(--sans); color: var(--ink); background: var(--surface-2);
+    border: 1px solid var(--border-strong); border-radius: 10px; padding: 11px 14px;
+  }
+  .field { display: inline-flex; flex-direction: column; gap: 4px; text-align: left; }
+  .field label { font: 700 10px/1 var(--sans); letter-spacing: 1.5px; text-transform: uppercase; color: var(--ink-faint); }
+
+  /* ---- sheet ---- */
+  #sheet { margin-top: 20px; }
+  #sheet[hidden] { display: none; }
+  .placeholder { text-align: center; color: var(--ink-faint); font-style: italic;
+    padding: 44px 16px; border: 1px dashed var(--border); border-radius: 14px; margin-top: 20px; }
+
+  .card {
+    background: linear-gradient(180deg, var(--surface), var(--page-2));
+    border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 10px 30px var(--shadow);
+  }
+  .card h2 {
+    font: 700 12px/1 var(--sans); letter-spacing: 2px; text-transform: uppercase;
+    color: var(--eldritch-deep); margin: 0 0 14px; display: flex; align-items: center; gap: 8px;
+  }
+  .card h2::after { content: ""; flex: 1; height: 1px;
+    background: linear-gradient(90deg, var(--border-strong), transparent); }
+
+  /* identity */
+  .idrow { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; }
+  .invname { font-size: clamp(24px, 5vw, 34px); font-weight: 700; margin: 0; }
+  .invmeta { color: var(--ink-dim); font-style: italic; }
+  .occline { margin: 10px 0 0; color: var(--ink-dim); }
+  .occline .emoji { font-size: 20px; }
+  .blurb { margin: 8px 0 0; color: var(--ink); font-style: italic; opacity: 0.92; }
+  .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .tag { font: 600 12px/1 var(--sans); padding: 6px 10px; border-radius: 999px;
+    border: 1px solid var(--border-strong); color: var(--ink-dim); background: rgba(127,214,161,0.05); }
+  .tag b { color: var(--eldritch); font-variant-numeric: tabular-nums; }
+
+  /* characteristics grid */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; }
+  .stat {
+    position: relative; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 11px; padding: 12px 10px 10px; text-align: center; cursor: pointer;
+    transition: border-color .2s, transform .08s;
+  }
+  .stat:hover { border-color: var(--border-strong); }
+  .stat:active { transform: translateY(1px); }
+  .stat .abbr { font: 700 11px/1 var(--sans); letter-spacing: 1.5px; color: var(--ink-faint); }
+  .stat .val { font-size: 30px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums;
+    color: var(--ink); }
+  .stat .half { font: 12px/1 var(--sans); color: var(--ink-faint); margin-top: 2px; }
+  .stat .reroll { position: absolute; top: 6px; right: 8px; font-size: 12px; opacity: 0;
+    transition: opacity .2s; }
+  .stat:hover .reroll { opacity: 0.7; }
+  .stat.rolling .val { color: var(--eldritch); }
+  .stat.crit .val { color: var(--gold); text-shadow: 0 0 16px rgba(217,164,65,0.5); }
+  .stat.fumble .val { color: var(--blood); }
+
+  /* vitals */
+  .vitals { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
+  .vital { background: var(--surface-2); border: 1px solid var(--border); border-radius: 11px; padding: 12px 14px; }
+  .vital .lbl { font: 700 10px/1 var(--sans); letter-spacing: 1.5px; text-transform: uppercase; color: var(--ink-faint); }
+  .vital .big { font-size: 26px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .vital.san .big { color: var(--violet); }
+  .vital.hp .big { color: var(--blood); }
+  .vital.luck .big { color: var(--gold); }
+  .meter { height: 7px; border-radius: 999px; background: rgba(255,255,255,0.07); margin-top: 8px; overflow: hidden; }
+  .meter > i { display: block; height: 100%; border-radius: 999px; }
+  .meter.san > i { background: linear-gradient(90deg, var(--violet), #c9b6f2); }
+  .meter.hp > i { background: linear-gradient(90deg, var(--blood), #e08a72); }
+  .meter.luck > i { background: linear-gradient(90deg, var(--gold), #f0d488); }
+
+  /* skills */
+  .skills { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px 18px; }
+  .skills li { list-style: none; display: flex; justify-content: space-between; gap: 10px;
+    padding: 5px 0; border-bottom: 1px dotted var(--border); }
+  .skills ul { margin: 0; padding: 0; }
+  .skills .skname { color: var(--ink-dim); }
+  .pointsnote { font: 13px/1.5 var(--sans); color: var(--ink-faint); margin: 0 0 12px; }
+  .pointsnote b { color: var(--eldritch); }
+
+  /* backstory */
+  .story dt { font: 700 10px/1 var(--sans); letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--eldritch-deep); margin-top: 14px; }
+  .story dt:first-child { margin-top: 0; }
+  .story dd { margin: 4px 0 0; color: var(--ink); }
+  .doom { margin-top: 16px; padding: 14px 16px; border-radius: 11px;
+    border: 1px solid rgba(181,70,47,0.4); background: rgba(181,70,47,0.09); }
+  .doom .lbl { font: 700 10px/1 var(--sans); letter-spacing: 2px; text-transform: uppercase; color: var(--blood); }
+  .doom p { margin: 6px 0 0; font-style: italic; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 8px; }
+  footer { text-align: center; color: var(--ink-faint); font: 13px/1.6 var(--sans); margin-top: 34px; }
+  footer a { color: var(--eldritch-deep); }
+  .toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(20px);
+    background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--ink);
+    padding: 10px 16px; border-radius: 10px; font: 14px/1 var(--sans); opacity: 0; pointer-events: none;
+    transition: opacity .25s, transform .25s; box-shadow: 0 8px 24px var(--shadow); z-index: 50; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @keyframes tumble { 0% { transform: rotate(0) scale(1); } 50% { transform: rotate(8deg) scale(1.08); }
+    100% { transform: rotate(0) scale(1); } }
+  .stat.rolling { animation: tumble .18s ease; }
+  @keyframes flicker { 0%,100% { opacity: 1; } 48% { opacity: 0.86; } 50% { opacity: 0.62; } 52% { opacity: 0.9; } }
+  .eye { animation: flicker 6s infinite; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .stat.rolling, .eye { animation: none; }
+    button { transition: none; }
+  }
+  @media print {
+    body { background: #fff; color: #111; }
+    .summon, .actions, footer, .toast, .stat .reroll { display: none !important; }
+    .card { box-shadow: none; border-color: #ccc; break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="mast">
+    <svg class="eye" viewBox="0 0 100 100" aria-hidden="true">
+      <ellipse cx="50" cy="50" rx="46" ry="30" fill="none" stroke="#3f9e6f" stroke-width="2.5"/>
+      <circle cx="50" cy="50" r="16" fill="#0d1512" stroke="#7fd6a1" stroke-width="2.5"/>
+      <circle cx="50" cy="50" r="6" fill="#7fd6a1"/>
+      <g stroke="#3f9e6f" stroke-width="2" fill="none" stroke-linecap="round">
+        <path d="M50 66 q-6 10 -14 12"/><path d="M50 66 q6 10 14 12"/>
+        <path d="M50 66 q0 12 0 16"/>
+      </g>
+    </svg>
+    <p class="kicker">Call of Cthulhu · 7th Edition</p>
+    <h1>Roll the Bones</h1>
+    <p class="sub">Summon a doomed investigator — rolled characteristics, a period name, an
+      occupation, and a backstory the Keeper can twist against you. Tap any stat to re-roll just that one.</p>
+  </header>
+
+  <div class="summon">
+    <button id="summon" class="primary">🎲 Summon an Investigator</button>
+    <div class="field">
+      <label for="occ">Calling</label>
+      <select id="occ"><option value="">Fate decides…</option></select>
+    </div>
+    <div class="field">
+      <label for="gender">Name style</label>
+      <select id="gender">
+        <option value="">Any</option>
+        <option value="feminine">Feminine</option>
+        <option value="masculine">Masculine</option>
+        <option value="neutral">Neutral</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="empty" class="placeholder">The slab is empty. Roll the bones to see who answers.</div>
+
+  <section id="sheet" hidden>
+    <div class="card" id="identCard">
+      <div class="idrow">
+        <h2 class="invname" id="invName">—</h2>
+      </div>
+      <p class="invmeta" id="invMeta"></p>
+      <p class="occline"><span class="emoji" id="occEmoji"></span> <span id="occName"></span></p>
+      <p class="blurb" id="occBlurb"></p>
+      <div class="tags" id="idTags"></div>
+    </div>
+
+    <div class="card">
+      <h2>Characteristics <span style="font-family:var(--sans);font-weight:400;letter-spacing:0;text-transform:none;color:var(--ink-faint);font-size:11px;">tap to re-roll</span></h2>
+      <div class="grid" id="charGrid"></div>
+    </div>
+
+    <div class="card">
+      <h2>Vitals</h2>
+      <div class="vitals" id="vitals"></div>
+    </div>
+
+    <div class="card">
+      <h2 id="occSkillsHead">Occupation Skills</h2>
+      <p class="pointsnote" id="pointsNote"></p>
+      <div class="skills"><ul id="skillList"></ul></div>
+    </div>
+
+    <div class="card">
+      <h2>Backstory</h2>
+      <dl class="story" id="story"></dl>
+      <div class="doom">
+        <span class="lbl">⚠ The Keeper's Hook</span>
+        <p id="doom"></p>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="reroll" class="primary">🎲 Roll Again</button>
+      <button id="rerollName" class="ghost">🎭 New name</button>
+      <button id="rerollStory" class="ghost">📖 New backstory</button>
+      <button id="copy" class="ghost">📋 Copy sheet</button>
+      <button id="print" class="ghost">🖨 Print</button>
+    </div>
+  </section>
+
+  <footer>
+    A fan-made toy for <em>Call of Cthulhu</em>, © Chaosium Inc. — not affiliated.
+    Zero dependencies, rolls happen in your browser.
+    <br>Part of the <a href="index.html">Sun-Garden</a> project.
+  </footer>
+</main>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import {
+  makeInvestigator, rollCharacteristic, rollName, rollBackstory,
+  deriveAttributes, characteristicName, OCCUPATIONS, CHARACTERISTICS,
+} from './src/cthulhu.js?v=1';
+
+const $ = (id) => document.getElementById(id);
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let inv = null;
+
+// Populate the occupation picker.
+for (const o of OCCUPATIONS) {
+  const opt = document.createElement('option');
+  opt.value = o.name;
+  opt.textContent = `${o.emoji}  ${o.name}`;
+  $('occ').appendChild(opt);
+}
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+// ---- rendering ----------------------------------------------------------
+
+function renderIdentity() {
+  $('invName').textContent = inv.name.full;
+  $('invMeta').textContent = `Age ${inv.age} — ${inv.ageDescriptor}.`;
+  $('occEmoji').textContent = inv.occupation.emoji;
+  $('occName').textContent = inv.occupation.name;
+  $('occBlurb').textContent = `“${inv.occupation.blurb}”`;
+  const tags = $('idTags');
+  tags.innerHTML = '';
+  const chips = [
+    ['Credit Rating', inv.occupation.creditRating],
+    ['Damage Bonus', inv.attributes.damageBonus],
+    ['Build', inv.attributes.build],
+    ['Move', inv.attributes.move],
+    ['Dodge', inv.attributes.dodge],
+  ];
+  for (const [k, v] of chips) {
+    const el = document.createElement('span');
+    el.className = 'tag';
+    el.innerHTML = `${k} <b>${v}</b>`;
+    tags.appendChild(el);
+  }
+}
+
+function statClass(key, val) {
+  // 3d6×5 caps at 90; treat 85+ as a "crit", 25- as a "fumble" for flavor.
+  if (val >= 85) return 'crit';
+  if (val <= 25) return 'fumble';
+  return '';
+}
+
+function renderChars() {
+  const grid = $('charGrid');
+  grid.innerHTML = '';
+  for (const key of CHARACTERISTICS) {
+    const val = inv.characteristics[key];
+    const cell = document.createElement('button');
+    cell.className = `stat ${statClass(key, val)}`;
+    cell.title = `${characteristicName(key)} — click to re-roll`;
+    cell.innerHTML =
+      `<span class="reroll">⟳</span>` +
+      `<div class="abbr">${key}</div>` +
+      `<div class="val">${val}</div>` +
+      `<div class="half">${Math.floor(val / 2)} / ${Math.floor(val / 5)}</div>`;
+    cell.addEventListener('click', () => rerollStat(key, cell));
+    grid.appendChild(cell);
+  }
+}
+
+function renderVitals() {
+  const a = inv.attributes;
+  const cells = [
+    { cls: 'hp', lbl: 'Hit Points', val: `${a.hitPoints}`, meter: a.hitPoints / 20 },
+    { cls: 'san', lbl: 'Sanity', val: `${a.sanity}`, meter: a.sanity / 99 },
+    { cls: 'luck', lbl: 'Luck', val: `${inv.luck}`, meter: inv.luck / 99 },
+    { cls: 'mp', lbl: 'Magic Points', val: `${a.magicPoints}`, meter: a.magicPoints / 20 },
+  ];
+  const box = $('vitals');
+  box.innerHTML = '';
+  for (const c of cells) {
+    const el = document.createElement('div');
+    el.className = `vital ${c.cls}`;
+    const pct = Math.min(100, Math.round(c.meter * 100));
+    el.innerHTML = `<div class="lbl">${c.lbl}</div><div class="big">${c.val}</div>` +
+      (c.cls === 'mp' ? '' : `<div class="meter ${c.cls}"><i style="width:${pct}%"></i></div>`);
+    box.appendChild(el);
+  }
+}
+
+function renderSkills() {
+  const o = inv.occupation;
+  $('occSkillsHead').textContent = `${o.emoji} ${o.name} — Skills`;
+  $('pointsNote').innerHTML =
+    `Spend <b>${o.occupationPoints}</b> occupation points across these, plus ` +
+    `<b>${o.personalInterestPoints}</b> personal-interest points anywhere.`;
+  const ul = $('skillList');
+  ul.innerHTML = '';
+  for (const s of o.skills) {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="skname">${s}</span>`;
+    ul.appendChild(li);
+  }
+}
+
+function renderStory() {
+  const b = inv.backstory;
+  const rows = [
+    ['Ideology / Belief', b.ideology],
+    ['A Significant Person', b.significantPerson],
+    ['A Meaningful Location', b.meaningfulLocation],
+    ['A Treasured Possession', b.treasuredPossession],
+    ['A Defining Trait', b.trait],
+    ['A Private Fear', b.phobia],
+  ];
+  const dl = $('story');
+  dl.innerHTML = '';
+  for (const [dt, dd] of rows) {
+    dl.insertAdjacentHTML('beforeend', `<dt>${dt}</dt><dd>${dd}</dd>`);
+  }
+  $('doom').textContent = b.doom;
+}
+
+function renderAll() {
+  $('empty').hidden = true;
+  $('sheet').hidden = false;
+  renderIdentity();
+  renderChars();
+  renderVitals();
+  renderSkills();
+  renderStory();
+}
+
+// ---- rolling ------------------------------------------------------------
+
+// A brief tumble: flash a few random faces before settling. Purely cosmetic.
+function animateStat(cell, finalVal, key) {
+  if (reduceMotion) return;
+  let ticks = 5;
+  const valEl = cell.querySelector('.val');
+  cell.classList.add('rolling');
+  const spin = setInterval(() => {
+    valEl.textContent = rollCharacteristic(key);
+    if (--ticks <= 0) {
+      clearInterval(spin);
+      valEl.textContent = finalVal;
+      cell.classList.remove('rolling');
+    }
+  }, 45);
+}
+
+function rerollStat(key, cell) {
+  const val = rollCharacteristic(key);
+  inv.characteristics[key] = val;
+  // Recompute everything the stat feeds (HP/MP/SAN/Move/DB/Dodge).
+  inv.attributes = deriveAttributes(inv.characteristics, inv.age);
+  animateStat(cell, val, key);
+  cell.className = `stat ${statClass(key, val)}`;
+  // Refresh the number after the animation settles.
+  setTimeout(() => {
+    cell.querySelector('.val').textContent = val;
+    cell.querySelector('.half').textContent = `${Math.floor(val / 2)} / ${Math.floor(val / 5)}`;
+    renderVitals();
+    renderIdentity();
+  }, reduceMotion ? 0 : 240);
+}
+
+function summon() {
+  const occ = $('occ').value || undefined;
+  const gender = $('gender').value || undefined;
+  inv = makeInvestigator({ occupation: occ, gender });
+  renderAll();
+  $('sheet').scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+}
+
+// ---- export -------------------------------------------------------------
+
+function asText() {
+  const c = inv.characteristics, a = inv.attributes, o = inv.occupation, b = inv.backstory;
+  const stat = (k) => `${k} ${c[k]} (${Math.floor(c[k] / 2)}/${Math.floor(c[k] / 5)})`;
+  return [
+    `${inv.name.full} — ${o.name}`,
+    `Age ${inv.age}, ${inv.ageDescriptor}`,
+    '',
+    'CHARACTERISTICS',
+    CHARACTERISTICS.map(stat).join('   '),
+    '',
+    'VITALS',
+    `HP ${a.hitPoints}   Sanity ${a.sanity}   Luck ${inv.luck}   Magic ${a.magicPoints}`,
+    `Move ${a.move}   Dodge ${a.dodge}   Damage Bonus ${a.damageBonus}   Build ${a.build}   Credit ${o.creditRating}`,
+    '',
+    `OCCUPATION SKILLS (${o.occupationPoints} occ pts + ${o.personalInterestPoints} interest pts)`,
+    o.skills.join(', '),
+    '',
+    'BACKSTORY',
+    `Ideology: ${b.ideology}`,
+    `Significant person: ${b.significantPerson}`,
+    `Meaningful location: ${b.meaningfulLocation}`,
+    `Treasured possession: ${b.treasuredPossession}`,
+    `Trait: ${b.trait}`,
+    `Private fear: ${b.phobia}`,
+    '',
+    `Keeper's hook: ${b.doom}`,
+  ].join('\n');
+}
+
+async function copySheet() {
+  const text = asText();
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Investigator copied to clipboard');
+  } catch {
+    // Clipboard blocked (insecure context / permissions) — fall back.
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast('Investigator copied'); }
+    catch { toast('Copy failed — select the sheet manually'); }
+    ta.remove();
+  }
+}
+
+// ---- wiring -------------------------------------------------------------
+
+$('summon').addEventListener('click', summon);
+$('reroll').addEventListener('click', summon);
+$('rerollName').addEventListener('click', () => {
+  inv.name = rollName(Math.random, $('gender').value || undefined);
+  renderIdentity();
+});
+$('rerollStory').addEventListener('click', () => {
+  inv.backstory = rollBackstory();
+  renderStory();
+});
+$('copy').addEventListener('click', copySheet);
+$('print').addEventListener('click', () => window.print());
+
+// Expose a hook for Playwright checks.
+window.__cthulhu = { get: () => inv, summon };
+</script>
+</body>
+</html>
